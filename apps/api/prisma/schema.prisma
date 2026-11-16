@@ -133,27 +133,35 @@ model Company {
   createdById             String?       @map("created_by") @db.Uuid
   updatedById             String?       @map("updated_by") @db.Uuid
 
-  departments        Department[]
-  costCentres        CostCentre[]
-  users              User[]                    @relation("UserHomeCompany")
-  roles              Role[]
-  roleAssignments    UserRoleAssignment[]
-  approvalPolicies   ApprovalPolicy[]
-  approvalInstances  ApprovalInstance[]
-  delegations        ApprovalDelegation[]
-  auditEvents        AuditEvent[]
-  documents          Document[]
-  notifications      Notification[]
-  integrationConfigs IntegrationConfig[]
-  numberingSeries    NumberingSeries[]
-  generatedNumbers   GeneratedNumber[]
-  outboxEvents       OutboxEvent[]
-  sessions           Session[]
-  vendors            Vendor[]
-  vendorContacts     VendorContact[]
-  vendorBankAccounts VendorBankAccount[]
-  vendorBankChanges  VendorBankChangeRequest[]
-  vendorDocuments    VendorDocument[]
+  departments          Department[]
+  costCentres          CostCentre[]
+  users                User[]                    @relation("UserHomeCompany")
+  roles                Role[]
+  roleAssignments      UserRoleAssignment[]
+  approvalPolicies     ApprovalPolicy[]
+  approvalInstances    ApprovalInstance[]
+  delegations          ApprovalDelegation[]
+  auditEvents          AuditEvent[]
+  documents            Document[]
+  notifications        Notification[]
+  integrationConfigs   IntegrationConfig[]
+  numberingSeries      NumberingSeries[]
+  generatedNumbers     GeneratedNumber[]
+  outboxEvents         OutboxEvent[]
+  sessions             Session[]
+  vendors              Vendor[]
+  vendorContacts       VendorContact[]
+  vendorBankAccounts   VendorBankAccount[]
+  vendorBankChanges    VendorBankChangeRequest[]
+  vendorDocuments      VendorDocument[]
+  purchaseRequisitions PurchaseRequisition[]
+  requisitionLines     RequisitionLine[]
+  rfqs                 Rfq[]
+  rfqLines             RfqLine[]
+  rfqInvitations       RfqInvitation[]
+  rfqCommunications    RfqCommunication[]
+  quotations           Quotation[]
+  quotationVersions    QuotationVersion[]
 
   @@map("company")
 }
@@ -172,13 +180,14 @@ model Department {
   createdById String?  @map("created_by") @db.Uuid
   updatedById String?  @map("updated_by") @db.Uuid
 
-  company         Company              @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  parent          Department?          @relation("DepartmentTree", fields: [parentId], references: [id], onDelete: Restrict)
-  children        Department[]         @relation("DepartmentTree")
-  head            User?                @relation("DepartmentHead", fields: [headUserId], references: [id], onDelete: SetNull)
-  members         User[]               @relation("UserDepartment")
+  company         Company               @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  parent          Department?           @relation("DepartmentTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children        Department[]          @relation("DepartmentTree")
+  head            User?                 @relation("DepartmentHead", fields: [headUserId], references: [id], onDelete: SetNull)
+  members         User[]                @relation("UserDepartment")
   costCentres     CostCentre[]
   roleAssignments UserRoleAssignment[]
+  requisitions    PurchaseRequisition[]
 
   @@unique([companyId, code])
   @@unique([companyId, id])
@@ -199,8 +208,9 @@ model CostCentre {
   createdById  String?  @map("created_by") @db.Uuid
   updatedById  String?  @map("updated_by") @db.Uuid
 
-  company    Company     @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  department Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  company      Company               @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  department   Department?           @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  requisitions PurchaseRequisition[]
 
   @@unique([companyId, code])
   @@index([companyId, departmentId])
@@ -238,30 +248,40 @@ model User {
   createdById         String?    @map("created_by") @db.Uuid
   updatedById         String?    @map("updated_by") @db.Uuid
 
-  company              Company                   @relation("UserHomeCompany", fields: [companyId], references: [id], onDelete: Restrict)
-  department           Department?               @relation("UserDepartment", fields: [departmentId], references: [id], onDelete: SetNull)
-  manager              User?                     @relation("UserManager", fields: [managerId], references: [id], onDelete: SetNull)
-  reports              User[]                    @relation("UserManager")
-  headOf               Department[]              @relation("DepartmentHead")
-  roleAssignments      UserRoleAssignment[]      @relation("AssignmentUser")
-  grantedAssignments   UserRoleAssignment[]      @relation("AssignmentGrantedBy")
-  sessions             Session[]
-  authTokens           AuthToken[]
-  approvalTasks        ApprovalTask[]            @relation("TaskAssignee")
-  delegatedTasks       ApprovalTask[]            @relation("TaskDelegatedFrom")
-  decidedTasks         ApprovalTask[]            @relation("TaskDecidedBy")
-  requestedApprovals   ApprovalInstance[]        @relation("InstanceRequester")
-  delegationsGiven     ApprovalDelegation[]      @relation("Delegator")
-  delegationsReceived  ApprovalDelegation[]      @relation("Delegate")
-  notifications        Notification[]
-  auditEvents          AuditEvent[]
-  uploadedDocuments    Document[]
-  vendorsCreated       Vendor[]                  @relation("VendorCreatedBy")
-  bankChangesRequested VendorBankChangeRequest[] @relation("BankChangeRequestedBy")
-  vendorDocsVerified   VendorDocument[]          @relation("VendorDocVerifiedBy")
-  vendorDocsUploaded   VendorDocument[]          @relation("VendorDocUploadedBy")
-  bankAccountsVerified VendorBankAccount[]       @relation("BankAccountVerifiedBy")
-  vendorStatusChanges  VendorStatusHistory[]
+  company                    Company                    @relation("UserHomeCompany", fields: [companyId], references: [id], onDelete: Restrict)
+  department                 Department?                @relation("UserDepartment", fields: [departmentId], references: [id], onDelete: SetNull)
+  manager                    User?                      @relation("UserManager", fields: [managerId], references: [id], onDelete: SetNull)
+  reports                    User[]                     @relation("UserManager")
+  headOf                     Department[]               @relation("DepartmentHead")
+  roleAssignments            UserRoleAssignment[]       @relation("AssignmentUser")
+  grantedAssignments         UserRoleAssignment[]       @relation("AssignmentGrantedBy")
+  sessions                   Session[]
+  authTokens                 AuthToken[]
+  approvalTasks              ApprovalTask[]             @relation("TaskAssignee")
+  delegatedTasks             ApprovalTask[]             @relation("TaskDelegatedFrom")
+  decidedTasks               ApprovalTask[]             @relation("TaskDecidedBy")
+  requestedApprovals         ApprovalInstance[]         @relation("InstanceRequester")
+  delegationsGiven           ApprovalDelegation[]       @relation("Delegator")
+  delegationsReceived        ApprovalDelegation[]       @relation("Delegate")
+  notifications              Notification[]
+  auditEvents                AuditEvent[]
+  uploadedDocuments          Document[]
+  vendorsCreated             Vendor[]                   @relation("VendorCreatedBy")
+  bankChangesRequested       VendorBankChangeRequest[]  @relation("BankChangeRequestedBy")
+  vendorDocsVerified         VendorDocument[]           @relation("VendorDocVerifiedBy")
+  vendorDocsUploaded         VendorDocument[]           @relation("VendorDocUploadedBy")
+  bankAccountsVerified       VendorBankAccount[]        @relation("BankAccountVerifiedBy")
+  vendorStatusChanges        VendorStatusHistory[]
+  requisitionsRequested      PurchaseRequisition[]      @relation("RequisitionRequester")
+  requisitionHistory         RequisitionStatusHistory[] @relation("RequisitionHistoryActor")
+  rfqsCreated                Rfq[]                      @relation("RfqCreatedBy")
+  rfqInvitationsSent         RfqInvitation[]            @relation("RfqInvitedBy")
+  rfqCommunications          RfqCommunication[]         @relation("RfqCommunicationActor")
+  rfqHistory                 RfqStatusHistory[]         @relation("RfqHistoryActor")
+  quotationsCreated          Quotation[]                @relation("QuotationCreatedBy")
+  quotationVersionsSubmitted QuotationVersion[]         @relation("QuotationVersionSubmittedBy")
+  quotationVersionsCreated   QuotationVersion[]         @relation("QuotationVersionCreatedBy")
+  quotationReviews           QuotationReview[]          @relation("QuotationReviewer")
 
   @@unique([identityProvider, identitySubject])
   @@index([companyId, status])
@@ -601,11 +621,14 @@ model Document {
   deletedAt       DateTime?          @map("deleted_at") @db.Timestamptz(6)
   createdAt       DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  company         Company             @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  uploadedBy      User                @relation(fields: [uploadedById], references: [id], onDelete: Restrict)
-  links           DocumentLink[]
-  vendorDocuments VendorDocument[]
-  bankProofs      VendorBankAccount[]
+  company          Company             @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  uploadedBy       User                @relation(fields: [uploadedById], references: [id], onDelete: Restrict)
+  links            DocumentLink[]
+  vendorDocuments  VendorDocument[]
+  bankProofs       VendorBankAccount[]
+  rfqDocuments     Rfq[]
+  rfqEvidence      RfqCommunication[]
+  quotationSources QuotationVersion[]
 
   @@index([companyId, createdAt])
   @@index([companyId, sha256])
@@ -861,13 +884,17 @@ model Vendor {
   createdById             String              @map("created_by") @db.Uuid
   updatedById             String?             @map("updated_by") @db.Uuid
 
-  company       Company                   @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  createdBy     User                      @relation("VendorCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
-  contacts      VendorContact[]
-  bankAccounts  VendorBankAccount[]
-  bankChanges   VendorBankChangeRequest[]
-  documents     VendorDocument[]
-  statusHistory VendorStatusHistory[]
+  company            Company                   @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  createdBy          User                      @relation("VendorCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  contacts           VendorContact[]
+  bankAccounts       VendorBankAccount[]
+  bankChanges        VendorBankChangeRequest[]
+  documents          VendorDocument[]
+  statusHistory      VendorStatusHistory[]
+  directRequisitions PurchaseRequisition[]     @relation("RequisitionDirectVendor")
+  preferredOnLines   RequisitionLine[]         @relation("RequisitionLinePreferredVendor")
+  rfqInvitations     RfqInvitation[]           @relation("RfqInvitationVendor")
+  quotations         Quotation[]               @relation("QuotationVendor")
 
   @@unique([companyId, vendorCode])
   @@unique([companyId, id])
@@ -1009,4 +1036,418 @@ model VendorStatusHistory {
 
   @@index([vendorId, occurredAt])
   @@map("vendor_status_history")
+}
+
+// ═══════════════════ Requisitions & Sourcing module (Phase 03) ═══════════════════
+
+enum RequisitionStatus {
+  DRAFT
+  SUBMITTED
+  PENDING_APPROVAL
+  APPROVED
+  RETURNED
+  REJECTED
+  WITHDRAWN
+  CANCELLED
+}
+
+enum RequisitionPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum LineItemType {
+  GOODS
+  SERVICE
+}
+
+enum SourcingRoute {
+  NONE
+  RFQ
+  DIRECT
+}
+
+enum RfqStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  SENT
+  PARTIALLY_RESPONDED
+  RESPONSES_RECEIVED
+  EVALUATION
+  AWARDED
+  CANCELLED
+  CLOSED
+}
+
+enum RfqInvitationStatus {
+  PENDING
+  SENT
+  DELIVERED
+  RESPONDED
+  DECLINED
+  NO_RESPONSE
+  WITHDRAWN
+}
+
+enum QuotationStatus {
+  DRAFT
+  SUBMITTED
+  UNDER_EVALUATION
+  CLARIFICATION_REQUESTED
+  REVISED
+  ACCEPTED
+  REJECTED
+  EXPIRED
+}
+
+enum QuotationReceivedVia {
+  MANUAL_ENTRY
+  UPLOADED_DOCUMENT
+  EMAIL
+  OFFLINE
+}
+
+/// Purchase requisition — the source of every sourced commitment.
+model PurchaseRequisition {
+  id                String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId         String              @map("company_id") @db.Uuid
+  requisitionNo     String              @map("requisition_no") @db.VarChar(64)
+  title             String              @db.VarChar(200)
+  requesterId       String              @map("requester_id") @db.Uuid
+  departmentId      String              @map("department_id") @db.Uuid
+  costCentreId      String?             @map("cost_centre_id") @db.Uuid
+  justification     String              @db.VarChar(4000)
+  requiredBy        DateTime            @map("required_by") @db.Date
+  deliveryLocation  String              @map("delivery_location") @db.VarChar(300)
+  priority          RequisitionPriority @default(NORMAL)
+  currency          String              @default("INR") @db.Char(3)
+  estimatedSubtotal Decimal             @default(0) @map("estimated_subtotal") @db.Decimal(18, 2)
+  estimatedTax      Decimal             @default(0) @map("estimated_tax") @db.Decimal(18, 2)
+  estimatedTotal    Decimal             @default(0) @map("estimated_total") @db.Decimal(18, 2)
+  status            RequisitionStatus   @default(DRAFT)
+  statusReason      String?             @map("status_reason") @db.VarChar(2000)
+  sourcingRoute     SourcingRoute       @default(NONE) @map("sourcing_route")
+  directVendorId    String?             @map("direct_vendor_id") @db.Uuid
+  directReason      String?             @map("direct_reason") @db.VarChar(1000)
+  submittedAt       DateTime?           @map("submitted_at") @db.Timestamptz(6)
+  approvedAt        DateTime?           @map("approved_at") @db.Timestamptz(6)
+  version           Int                 @default(0)
+  createdAt         DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime            @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedById       String?             @map("updated_by") @db.Uuid
+
+  company       Company                    @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  requester     User                       @relation("RequisitionRequester", fields: [requesterId], references: [id], onDelete: Restrict)
+  department    Department                 @relation(fields: [companyId, departmentId], references: [companyId, id], onDelete: Restrict)
+  costCentre    CostCentre?                @relation(fields: [costCentreId], references: [id], onDelete: Restrict)
+  directVendor  Vendor?                    @relation("RequisitionDirectVendor", fields: [directVendorId], references: [id], onDelete: Restrict)
+  lines         RequisitionLine[]
+  statusHistory RequisitionStatusHistory[]
+  rfqs          Rfq[]
+
+  @@unique([companyId, requisitionNo])
+  @@unique([companyId, id])
+  @@index([companyId, status, createdAt])
+  @@index([companyId, requesterId, status])
+  @@index([companyId, departmentId, status])
+  @@map("purchase_requisition")
+}
+
+model RequisitionLine {
+  id                 String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId          String       @map("company_id") @db.Uuid
+  requisitionId      String       @map("requisition_id") @db.Uuid
+  lineNo             Int          @map("line_no") @db.SmallInt
+  itemType           LineItemType @map("item_type")
+  description        String       @db.VarChar(1000)
+  quantity           Decimal      @db.Decimal(18, 4)
+  uom                String       @db.VarChar(16)
+  estimatedUnitPrice Decimal      @map("estimated_unit_price") @db.Decimal(18, 4)
+  taxCategory        String       @map("tax_category") @db.VarChar(16)
+  taxRate            Decimal      @map("tax_rate") @db.Decimal(5, 2)
+  lineSubtotal       Decimal      @map("line_subtotal") @db.Decimal(18, 2)
+  lineTax            Decimal      @map("line_tax") @db.Decimal(18, 2)
+  lineTotal          Decimal      @map("line_total") @db.Decimal(18, 2)
+  preferredVendorId  String?      @map("preferred_vendor_id") @db.Uuid
+
+  company         Company             @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  requisition     PurchaseRequisition @relation(fields: [companyId, requisitionId], references: [companyId, id], onDelete: Cascade)
+  preferredVendor Vendor?             @relation("RequisitionLinePreferredVendor", fields: [preferredVendorId], references: [id], onDelete: Restrict)
+  rfqLines        RfqLine[]
+
+  @@unique([requisitionId, lineNo])
+  @@map("requisition_line")
+}
+
+model RequisitionStatusHistory {
+  id            String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  requisitionId String             @map("requisition_id") @db.Uuid
+  fromStatus    RequisitionStatus? @map("from_status")
+  toStatus      RequisitionStatus  @map("to_status")
+  actorId       String?            @map("actor_id") @db.Uuid
+  reason        String?            @db.VarChar(2000)
+  occurredAt    DateTime           @default(now()) @map("occurred_at") @db.Timestamptz(6)
+
+  requisition PurchaseRequisition @relation(fields: [requisitionId], references: [id], onDelete: Restrict)
+  actor       User?               @relation("RequisitionHistoryActor", fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@index([requisitionId, occurredAt])
+  @@map("requisition_status_history")
+}
+
+model Rfq {
+  id                     String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId              String    @map("company_id") @db.Uuid
+  rfqNo                  String    @map("rfq_no") @db.VarChar(64)
+  requisitionId          String?   @map("requisition_id") @db.Uuid
+  title                  String    @db.VarChar(200)
+  description            String?   @db.VarChar(4000)
+  deliveryRequirements   String?   @map("delivery_requirements") @db.VarChar(2000)
+  deliveryLocation       String    @map("delivery_location") @db.VarChar(300)
+  responseDeadline       DateTime  @map("response_deadline") @db.Timestamptz(6)
+  submissionInstructions String?   @map("submission_instructions") @db.VarChar(4000)
+  termsAndConditions     String?   @map("terms_and_conditions") @db.VarChar(8000)
+  currency               String    @default("INR") @db.Char(3)
+  status                 RfqStatus @default(DRAFT)
+  statusReason           String?   @map("status_reason") @db.VarChar(2000)
+  isStandalone           Boolean   @default(false) @map("is_standalone")
+  standaloneReason       String?   @map("standalone_reason") @db.VarChar(1000)
+  rfqDocumentId          String?   @map("rfq_document_id") @db.Uuid
+  sentAt                 DateTime? @map("sent_at") @db.Timestamptz(6)
+  closedAt               DateTime? @map("closed_at") @db.Timestamptz(6)
+  version                Int       @default(0)
+  createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  createdById            String    @map("created_by") @db.Uuid
+  updatedById            String?   @map("updated_by") @db.Uuid
+
+  company        Company              @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  requisition    PurchaseRequisition? @relation(fields: [companyId, requisitionId], references: [companyId, id], onDelete: Restrict)
+  rfqDocument    Document?            @relation(fields: [rfqDocumentId], references: [id], onDelete: Restrict)
+  createdBy      User                 @relation("RfqCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  lines          RfqLine[]
+  invitations    RfqInvitation[]
+  communications RfqCommunication[]
+  quotations     Quotation[]
+  statusHistory  RfqStatusHistory[]
+
+  @@unique([companyId, rfqNo])
+  @@unique([companyId, id])
+  @@index([companyId, status, responseDeadline])
+  @@index([requisitionId])
+  @@map("rfq")
+}
+
+model RfqLine {
+  id                String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId         String       @map("company_id") @db.Uuid
+  rfqId             String       @map("rfq_id") @db.Uuid
+  lineNo            Int          @map("line_no") @db.SmallInt
+  requisitionLineId String?      @map("requisition_line_id") @db.Uuid
+  itemType          LineItemType @map("item_type")
+  description       String       @db.VarChar(1000)
+  specification     String?      @db.VarChar(2000)
+  quantity          Decimal      @db.Decimal(18, 4)
+  uom               String       @db.VarChar(16)
+
+  company         Company                @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  rfq             Rfq                    @relation(fields: [companyId, rfqId], references: [companyId, id], onDelete: Cascade)
+  requisitionLine RequisitionLine?       @relation(fields: [requisitionLineId], references: [id], onDelete: Restrict)
+  quotationLines  QuotationVersionLine[]
+
+  @@unique([rfqId, lineNo])
+  @@unique([rfqId, id])
+  @@map("rfq_line")
+}
+
+/// One row per invited vendor; delivery evidence and reminders are tracked here and in rfq_communication.
+model RfqInvitation {
+  id             String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId      String              @map("company_id") @db.Uuid
+  rfqId          String              @map("rfq_id") @db.Uuid
+  vendorId       String              @map("vendor_id") @db.Uuid
+  status         RfqInvitationStatus @default(PENDING)
+  recipientEmail String              @map("recipient_email") @db.VarChar(254)
+  invitedById    String              @map("invited_by") @db.Uuid
+  invitedAt      DateTime            @default(now()) @map("invited_at") @db.Timestamptz(6)
+  sentAt         DateTime?           @map("sent_at") @db.Timestamptz(6)
+  deliveredAt    DateTime?           @map("delivered_at") @db.Timestamptz(6)
+  respondedAt    DateTime?           @map("responded_at") @db.Timestamptz(6)
+  lastReminderAt DateTime?           @map("last_reminder_at") @db.Timestamptz(6)
+  reminderCount  Int                 @default(0) @map("reminder_count")
+  declineReason  String?             @map("decline_reason") @db.VarChar(1000)
+  createdAt      DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime            @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  company        Company            @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  rfq            Rfq                @relation(fields: [companyId, rfqId], references: [companyId, id], onDelete: Restrict)
+  vendor         Vendor             @relation("RfqInvitationVendor", fields: [companyId, vendorId], references: [companyId, id], onDelete: Restrict)
+  invitedBy      User               @relation("RfqInvitedBy", fields: [invitedById], references: [id], onDelete: Restrict)
+  communications RfqCommunication[]
+  quotations     Quotation[]
+
+  @@unique([rfqId, vendorId])
+  @@index([companyId, vendorId])
+  @@map("rfq_invitation")
+}
+
+/// Append-only communication log linked to the RFQ (invitations, reminders, clarifications, responses).
+model RfqCommunication {
+  id                 String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId          String   @map("company_id") @db.Uuid
+  rfqId              String   @map("rfq_id") @db.Uuid
+  invitationId       String?  @map("invitation_id") @db.Uuid
+  kind               String   @db.VarChar(40)
+  direction          String   @db.VarChar(10)
+  subject            String   @db.VarChar(300)
+  body               String?  @db.VarChar(8000)
+  recipient          String?  @db.VarChar(254)
+  deliveryReference  String?  @map("delivery_reference") @db.VarChar(100)
+  evidenceDocumentId String?  @map("evidence_document_id") @db.Uuid
+  actorId            String?  @map("actor_id") @db.Uuid
+  occurredAt         DateTime @default(now()) @map("occurred_at") @db.Timestamptz(6)
+
+  company          Company        @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  rfq              Rfq            @relation(fields: [companyId, rfqId], references: [companyId, id], onDelete: Restrict)
+  invitation       RfqInvitation? @relation(fields: [invitationId], references: [id], onDelete: Restrict)
+  evidenceDocument Document?      @relation(fields: [evidenceDocumentId], references: [id], onDelete: Restrict)
+  actor            User?          @relation("RfqCommunicationActor", fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@index([rfqId, occurredAt])
+  @@map("rfq_communication")
+}
+
+model RfqStatusHistory {
+  id         String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  rfqId      String     @map("rfq_id") @db.Uuid
+  fromStatus RfqStatus? @map("from_status")
+  toStatus   RfqStatus  @map("to_status")
+  actorId    String?    @map("actor_id") @db.Uuid
+  reason     String?    @db.VarChar(2000)
+  occurredAt DateTime   @default(now()) @map("occurred_at") @db.Timestamptz(6)
+
+  rfq   Rfq   @relation(fields: [rfqId], references: [id], onDelete: Restrict)
+  actor User? @relation("RfqHistoryActor", fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@index([rfqId, occurredAt])
+  @@map("rfq_status_history")
+}
+
+/// A vendor's response to an RFQ. Content lives in immutable versions.
+model Quotation {
+  id                 String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId          String          @map("company_id") @db.Uuid
+  quotationNo        String          @map("quotation_no") @db.VarChar(64)
+  rfqId              String          @map("rfq_id") @db.Uuid
+  vendorId           String          @map("vendor_id") @db.Uuid
+  invitationId       String          @map("invitation_id") @db.Uuid
+  status             QuotationStatus @default(DRAFT)
+  statusReason       String?         @map("status_reason") @db.VarChar(2000)
+  currentVersionNo   Int             @default(0) @map("current_version_no")
+  lateAcceptanceNote String?         @map("late_acceptance_note") @db.VarChar(1000)
+  version            Int             @default(0)
+  createdAt          DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime        @updatedAt @map("updated_at") @db.Timestamptz(6)
+  createdById        String          @map("created_by") @db.Uuid
+
+  company    Company            @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  rfq        Rfq                @relation(fields: [companyId, rfqId], references: [companyId, id], onDelete: Restrict)
+  vendor     Vendor             @relation("QuotationVendor", fields: [companyId, vendorId], references: [companyId, id], onDelete: Restrict)
+  invitation RfqInvitation      @relation(fields: [invitationId], references: [id], onDelete: Restrict)
+  createdBy  User               @relation("QuotationCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  versions   QuotationVersion[]
+  reviews    QuotationReview[]
+
+  @@unique([companyId, quotationNo])
+  @@unique([rfqId, vendorId])
+  @@unique([companyId, id])
+  @@index([companyId, status])
+  @@index([companyId, vendorId])
+  @@map("quotation")
+}
+
+/// Immutable once submitted (enforced by trigger). Totals are computed server-side with exact decimals.
+model QuotationVersion {
+  id               String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId        String               @map("company_id") @db.Uuid
+  quotationId      String               @map("quotation_id") @db.Uuid
+  versionNo        Int                  @map("version_no")
+  vendorReference  String?              @map("vendor_reference") @db.VarChar(80)
+  quotationDate    DateTime             @map("quotation_date") @db.Date
+  validUntil       DateTime             @map("valid_until") @db.Date
+  currency         String               @db.Char(3)
+  deliveryLeadDays Int?                 @map("delivery_lead_days")
+  warranty         String?              @db.VarChar(300)
+  paymentTermsDays Int?                 @map("payment_terms_days")
+  paymentTerms     String?              @map("payment_terms") @db.VarChar(500)
+  freight          Decimal              @default(0) @db.Decimal(18, 2)
+  otherCharges     Decimal              @default(0) @map("other_charges") @db.Decimal(18, 2)
+  otherChargesNote String?              @map("other_charges_note") @db.VarChar(300)
+  subtotal         Decimal              @default(0) @db.Decimal(18, 2)
+  discountTotal    Decimal              @default(0) @map("discount_total") @db.Decimal(18, 2)
+  taxTotal         Decimal              @default(0) @map("tax_total") @db.Decimal(18, 2)
+  grandTotal       Decimal              @default(0) @map("grand_total") @db.Decimal(18, 2)
+  notes            String?              @db.VarChar(4000)
+  changeSummary    String?              @map("change_summary") @db.VarChar(2000)
+  receivedVia      QuotationReceivedVia @default(MANUAL_ENTRY) @map("received_via")
+  sourceDocumentId String?              @map("source_document_id") @db.Uuid
+  submittedAt      DateTime?            @map("submitted_at") @db.Timestamptz(6)
+  submittedById    String?              @map("submitted_by") @db.Uuid
+  createdAt        DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdById      String               @map("created_by") @db.Uuid
+
+  company        Company                @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  quotation      Quotation              @relation(fields: [companyId, quotationId], references: [companyId, id], onDelete: Restrict)
+  sourceDocument Document?              @relation(fields: [sourceDocumentId], references: [id], onDelete: Restrict)
+  submittedBy    User?                  @relation("QuotationVersionSubmittedBy", fields: [submittedById], references: [id], onDelete: Restrict)
+  createdBy      User                   @relation("QuotationVersionCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  lines          QuotationVersionLine[]
+
+  @@unique([quotationId, versionNo])
+  @@map("quotation_version")
+}
+
+model QuotationVersionLine {
+  id              String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  versionId       String  @map("version_id") @db.Uuid
+  rfqId           String  @map("rfq_id") @db.Uuid
+  rfqLineId       String  @map("rfq_line_id") @db.Uuid
+  description     String  @db.VarChar(1000)
+  quantity        Decimal @db.Decimal(18, 4)
+  uom             String  @db.VarChar(16)
+  unitPrice       Decimal @map("unit_price") @db.Decimal(18, 4)
+  discountPercent Decimal @default(0) @map("discount_percent") @db.Decimal(5, 2)
+  taxRate         Decimal @map("tax_rate") @db.Decimal(5, 2)
+  gross           Decimal @db.Decimal(18, 2)
+  discount        Decimal @db.Decimal(18, 2)
+  taxable         Decimal @db.Decimal(18, 2)
+  tax             Decimal @db.Decimal(18, 2)
+  total           Decimal @db.Decimal(18, 2)
+  remarks         String? @db.VarChar(500)
+
+  version QuotationVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  rfqLine RfqLine          @relation(fields: [rfqId, rfqLineId], references: [rfqId, id], onDelete: Restrict)
+
+  @@unique([versionId, rfqLineId])
+  @@map("quotation_version_line")
+}
+
+/// Append-only reviewer history (evaluation, clarification, rejection, notes).
+model QuotationReview {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  quotationId String   @map("quotation_id") @db.Uuid
+  versionNo   Int      @map("version_no")
+  action      String   @db.VarChar(40)
+  note        String?  @db.VarChar(2000)
+  reviewerId  String   @map("reviewer_id") @db.Uuid
+  occurredAt  DateTime @default(now()) @map("occurred_at") @db.Timestamptz(6)
+
+  quotation Quotation @relation(fields: [quotationId], references: [id], onDelete: Restrict)
+  reviewer  User      @relation("QuotationReviewer", fields: [reviewerId], references: [id], onDelete: Restrict)
+
+  @@index([quotationId, occurredAt])
+  @@map("quotation_review")
 }
