@@ -96,6 +96,7 @@ export const PERMISSIONS = {
   'requisition.read': p({ module: 'requisitions', description: 'View purchase requisitions', scopable: true, phase: 3 }),
   'requisition.approve': p({ module: 'requisitions', description: 'Approve purchase requisitions', scopable: true, phase: 3 }),
   'rfq.read': p({ module: 'sourcing', description: 'View RFQs', phase: 3 }),
+  'rfq.standalone': p({ module: 'sourcing', description: 'Create RFQs without an approved requisition (subject to approval)', sensitive: true, phase: 3 }),
   'rfq.manage': p({ module: 'sourcing', description: 'Create and publish RFQs', phase: 3 }),
   'quotation.read': p({ module: 'sourcing', description: 'View vendor quotations and comparisons', phase: 3 }),
   'quotation.manage': p({ module: 'sourcing', description: 'Capture quotations and evaluations', phase: 3 }),

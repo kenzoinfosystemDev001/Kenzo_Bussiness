@@ -109,6 +109,7 @@ export const SYSTEM_ROLES: Record<SystemRoleKey, SystemRoleDefinition> = {
       'requisition.approve': C,
       'rfq.read': C,
       'rfq.manage': C,
+      'rfq.standalone': C,
       'quotation.read': C,
       'quotation.manage': C,
       'quotation.award': C,

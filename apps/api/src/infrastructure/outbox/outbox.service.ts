@@ -49,8 +49,9 @@ export class OutboxService implements OnApplicationBootstrap, OnModuleDestroy {
     @Inject(ENV) private readonly env: Env,
   ) {}
 
-  async enqueue(db: Db, input: OutboxEventInput): Promise<void> {
-    await db.outboxEvent.create({
+  /** Returns the event id (usable as a delivery reference / evidence link). */
+  async enqueue(db: Db, input: OutboxEventInput): Promise<string> {
+    const event = await db.outboxEvent.create({
       data: {
         companyId: input.companyId ?? null,
         eventType: input.eventType,
@@ -59,7 +60,9 @@ export class OutboxService implements OnApplicationBootstrap, OnModuleDestroy {
         payload: input.payload as Prisma.InputJsonValue,
         correlationId: RequestContext.correlationId() ?? null,
       },
+      select: { id: true },
     });
+    return event.id;
   }
 
   on(eventType: string, handler: OutboxHandler): void {
