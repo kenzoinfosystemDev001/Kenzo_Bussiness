@@ -1,0 +1,8 @@
+node_modules
+dist
+.next
+coverage
+storage
+package-lock.json
+apps/api/prisma/migrations
+*.docx

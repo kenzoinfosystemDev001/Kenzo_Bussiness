@@ -1,0 +1,98 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Design tokens (RGB triplets so Tailwind can apply alpha).
+ * Brand: deep navy #10243A · action blue #2563EB · teal #0F766E · amber #D97706 · red #DC2626.
+ */
+:root {
+  --canvas: 247 249 252; /* #F7F9FC */
+  --surface: 255 255 255;
+  --surface-muted: 241 245 249;
+  --border: 226 232 240; /* #E2E8F0 */
+  --border-strong: 203 213 225;
+  --fg: 15 23 42;
+  --fg-muted: 71 85 105;
+  --fg-subtle: 100 116 139;
+  --navy: 16 36 58; /* #10243A */
+  --navy-fg: 226 232 240;
+  --primary: 37 99 235; /* #2563EB */
+  --primary-hover: 29 78 216;
+  --primary-fg: 255 255 255;
+  --primary-soft: 239 246 255;
+  --success: 15 118 110; /* #0F766E */
+  --success-soft: 240 253 250;
+  --warning: 180 83 9; /* amber-700 for AA text contrast; badge dot uses #D97706 */
+  --warning-soft: 255 251 235;
+  --danger: 220 38 38; /* #DC2626 */
+  --danger-hover: 185 28 28;
+  --danger-soft: 254 242 242;
+  --info: 71 85 105;
+  --info-soft: 241 245 249;
+  --ring: 37 99 235;
+}
+
+.dark {
+  --canvas: 8 15 26;
+  --surface: 15 26 41;
+  --surface-muted: 22 36 54;
+  --border: 36 52 74;
+  --border-strong: 51 71 97;
+  --fg: 226 232 240;
+  --fg-muted: 160 174 194;
+  --fg-subtle: 120 136 158;
+  --navy: 6 14 24;
+  --navy-fg: 203 213 225;
+  --primary: 96 140 250;
+  --primary-hover: 129 164 252;
+  --primary-fg: 8 15 26;
+  --primary-soft: 23 37 66;
+  --success: 45 212 191;
+  --success-soft: 13 45 46;
+  --warning: 251 191 36;
+  --warning-soft: 52 39 11;
+  --danger: 248 113 113;
+  --danger-hover: 252 165 165;
+  --danger-soft: 60 20 24;
+  --info: 160 174 194;
+  --info-soft: 30 41 59;
+  --ring: 96 140 250;
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-rendering: optimizeLegibility;
+  }
+  body {
+    @apply bg-canvas text-base text-fg antialiased;
+    font-feature-settings: 'cv11', 'ss01';
+  }
+  :focus-visible {
+    @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-canvas;
+  }
+  ::selection {
+    @apply bg-primary/20;
+  }
+}
+
+@layer utilities {
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+  .scrollbar-thin {
+    scrollbar-width: thin;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
+}
