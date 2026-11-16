@@ -33,7 +33,18 @@ export const REQUISITION_TRANSITIONS: Record<RequisitionStatus, RequisitionStatu
 export const REQUISITION_PRIORITIES = ['LOW', 'NORMAL', 'HIGH', 'URGENT'] as const;
 export const LINE_ITEM_TYPES = ['GOODS', 'SERVICE'] as const;
 
-export const RFQ_STATUSES = ['DRAFT', 'PENDING_APPROVAL', 'APPROVED', 'SENT', 'PARTIALLY_RESPONDED', 'RESPONSES_RECEIVED', 'EVALUATION', 'AWARDED', 'CANCELLED', 'CLOSED'] as const;
+export const RFQ_STATUSES = [
+  'DRAFT',
+  'PENDING_APPROVAL',
+  'APPROVED',
+  'SENT',
+  'PARTIALLY_RESPONDED',
+  'RESPONSES_RECEIVED',
+  'EVALUATION',
+  'AWARDED',
+  'CANCELLED',
+  'CLOSED',
+] as const;
 export type RfqStatus = (typeof RFQ_STATUSES)[number];
 export const RFQ_STATUS_LABELS: Record<RfqStatus, string> = {
   DRAFT: 'Draft',
@@ -91,7 +102,24 @@ export function taxRateFor(code: string): string | null {
   return TAX_CATEGORIES.find((t) => t.code === code)?.rate ?? null;
 }
 
-export const UNITS_OF_MEASURE = ['NOS', 'PCS', 'SET', 'BOX', 'PACK', 'KG', 'G', 'LTR', 'MTR', 'SQM', 'HRS', 'DAYS', 'MONTHS', 'LOT', 'LICENSE', 'SERVICE'] as const;
+export const UNITS_OF_MEASURE = [
+  'NOS',
+  'PCS',
+  'SET',
+  'BOX',
+  'PACK',
+  'KG',
+  'G',
+  'LTR',
+  'MTR',
+  'SQM',
+  'HRS',
+  'DAYS',
+  'MONTHS',
+  'LOT',
+  'LICENSE',
+  'SERVICE',
+] as const;
 
 // ── Deterministic totals ───────────────────────────────────────────────────
 
@@ -218,7 +246,9 @@ export const rfqSchema = z
     description: opt(4000),
     deliveryRequirements: opt(2000),
     deliveryLocation: req(300, 'Delivery location'),
-    responseDeadline: z.iso.datetime({ offset: true }).refine((d) => new Date(d).getTime() > Date.now() + 60 * 60 * 1000, 'Deadline must be at least 1 hour from now'),
+    responseDeadline: z.iso
+      .datetime({ offset: true })
+      .refine((d) => new Date(d).getTime() > Date.now() + 60 * 60 * 1000, 'Deadline must be at least 1 hour from now'),
     submissionInstructions: opt(4000),
     termsAndConditions: opt(8000),
     currency: z
@@ -309,7 +339,8 @@ export const quotationVersionSchema = z
   })
   .superRefine((q, ctx) => {
     if (q.validUntil < q.quotationDate) ctx.addIssue({ code: 'custom', path: ['validUntil'], message: 'Validity must be on or after the quotation date' });
-    if (q.receivedVia === 'UPLOADED_DOCUMENT' && !q.sourceDocumentId) ctx.addIssue({ code: 'custom', path: ['sourceDocumentId'], message: 'Attach the vendor’s quotation document' });
+    if (q.receivedVia === 'UPLOADED_DOCUMENT' && !q.sourceDocumentId)
+      ctx.addIssue({ code: 'custom', path: ['sourceDocumentId'], message: 'Attach the vendor’s quotation document' });
     const ids = q.lines.map((l) => l.rfqLineId);
     if (new Set(ids).size !== ids.length) ctx.addIssue({ code: 'custom', path: ['lines'], message: 'Each RFQ item may be quoted once' });
   });

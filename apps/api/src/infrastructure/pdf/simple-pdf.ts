@@ -93,9 +93,7 @@ export function renderPdf(blocks: PdfBlock[], meta: { title: string; footer?: st
 
   const total = pages.length;
   const footer = sanitize(meta.footer ?? meta.title);
-  const contents = pages.map(
-    (p, i) => `${p}\nBT /F1 8 Tf ${MARGIN} 30 Td (${escapePdf(`${footer}  -  page ${i + 1} of ${total}`)}) Tj ET`,
-  );
+  const contents = pages.map((p, i) => `${p}\nBT /F1 8 Tf ${MARGIN} 30 Td (${escapePdf(`${footer}  -  page ${i + 1} of ${total}`)}) Tj ET`);
 
   // Objects: 1 catalog, 2 pages, 3-5 fonts, then (page, content) pairs, then info.
   const objects: string[] = [];

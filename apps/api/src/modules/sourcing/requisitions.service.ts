@@ -63,7 +63,10 @@ export class RequisitionsService implements OnModuleInit {
     if (this.authz.can(auth, 'requisition.read', { companyId: r.companyId, departmentId: r.departmentId, ownerId: r.requesterId })) return true;
     if (r.requesterId === auth.userId) return true;
     const task = await db.approvalTask.count({
-      where: { OR: [{ assigneeId: auth.userId }, { delegatedFromId: auth.userId }], instance: { companyId: auth.companyId, entityType: 'purchase_requisition', entityId: r.id } },
+      where: {
+        OR: [{ assigneeId: auth.userId }, { delegatedFromId: auth.userId }],
+        instance: { companyId: auth.companyId, entityType: 'purchase_requisition', entityId: r.id },
+      },
     });
     return task > 0;
   }
@@ -102,7 +105,10 @@ export class RequisitionsService implements OnModuleInit {
       lineTotal: totals.lines[i]!.total,
       preferredVendorId: l.preferredVendorId ?? null,
     }));
-    return { lines, header: { estimatedSubtotal: totals.taxableTotal, estimatedTax: totals.taxTotal, estimatedTotal: Dec2(totals.taxableTotal, totals.taxTotal) } };
+    return {
+      lines,
+      header: { estimatedSubtotal: totals.taxableTotal, estimatedTax: totals.taxTotal, estimatedTotal: Dec2(totals.taxableTotal, totals.taxTotal) },
+    };
   }
 
   async create(auth: AuthContext, input: RequisitionInput) {
@@ -128,7 +134,9 @@ export class RequisitionsService implements OnModuleInit {
           lines: { create: lines.map(({ companyId: _c, ...l }) => l) },
         },
       });
-      await tx.requisitionStatusHistory.create({ data: { requisitionId: reqId, fromStatus: null, toStatus: 'DRAFT', actorId: auth.userId, reason: 'Requisition drafted' } });
+      await tx.requisitionStatusHistory.create({
+        data: { requisitionId: reqId, fromStatus: null, toStatus: 'DRAFT', actorId: auth.userId, reason: 'Requisition drafted' },
+      });
       await this.audit.record(tx, {
         action: 'requisition.created',
         entityType: 'purchase_requisition',
@@ -185,7 +193,11 @@ export class RequisitionsService implements OnModuleInit {
       if (new Date(r.requiredBy) < new Date(new Date().toISOString().slice(0, 10))) {
         throw AppError.validation([{ path: 'requiredBy', message: 'Required-by date has passed — update it before submitting' }]);
       }
-      r = await this.common.transitionRequisition(tx, r, 'SUBMITTED', { actorId: auth.userId, reason: note ?? 'Submitted for approval', data: { submittedAt: new Date() } });
+      r = await this.common.transitionRequisition(tx, r, 'SUBMITTED', {
+        actorId: auth.userId,
+        reason: note ?? 'Submitted for approval',
+        data: { submittedAt: new Date() },
+      });
       await this.engine.submit(tx, auth, {
         entityType: 'purchase_requisition',
         entityId: r.id,
@@ -205,7 +217,9 @@ export class RequisitionsService implements OnModuleInit {
     const r = await this.common.loadRequisition(this.prisma, auth, id);
     if (r.requesterId !== auth.userId) throw AppError.forbidden('Only the requester can withdraw this requisition');
     if (r.status !== 'PENDING_APPROVAL') throw AppError.invalidState('Only requisitions pending approval can be withdrawn');
-    const instance = await this.prisma.approvalInstance.findFirst({ where: { companyId: auth.companyId, entityType: 'purchase_requisition', entityId: id, status: 'PENDING' } });
+    const instance = await this.prisma.approvalInstance.findFirst({
+      where: { companyId: auth.companyId, entityType: 'purchase_requisition', entityId: id, status: 'PENDING' },
+    });
     if (!instance) throw AppError.invalidState('No pending approval found');
     await this.engine.cancel(auth, instance.id, reason);
     return this.detail(auth, id);
@@ -327,20 +341,39 @@ export class RequisitionsService implements OnModuleInit {
 
   /** Requisition dashboard: live counts for the viewer's scope. */
   async stats(auth: AuthContext) {
-    const scope = this.authz.scopeFilter(auth, 'requisition.read', { department: 'departmentId', owner: 'requesterId' }) ?? { companyId: auth.companyId, requesterId: auth.userId };
+    const scope = this.authz.scopeFilter(auth, 'requisition.read', { department: 'departmentId', owner: 'requesterId' }) ?? {
+      companyId: auth.companyId,
+      requesterId: auth.userId,
+    };
     const where = scope as Prisma.PurchaseRequisitionWhereInput;
     const monthStart = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1));
     const [byStatus, mine, readyForSourcing, approvedValue, pendingMyApproval, recent] = await Promise.all([
       this.prisma.purchaseRequisition.groupBy({ by: ['status'], where, _count: { _all: true } }),
       this.prisma.purchaseRequisition.groupBy({ by: ['status'], where: { companyId: auth.companyId, requesterId: auth.userId }, _count: { _all: true } }),
       this.prisma.purchaseRequisition.count({ where: { ...where, status: 'APPROVED', sourcingRoute: 'NONE' } }),
-      this.prisma.purchaseRequisition.aggregate({ where: { ...where, status: 'APPROVED', approvedAt: { gte: monthStart } }, _sum: { estimatedTotal: true }, _count: { _all: true } }),
-      this.prisma.approvalTask.count({ where: { assigneeId: auth.userId, status: 'PENDING', instance: { companyId: auth.companyId, entityType: 'purchase_requisition' } } }),
+      this.prisma.purchaseRequisition.aggregate({
+        where: { ...where, status: 'APPROVED', approvedAt: { gte: monthStart } },
+        _sum: { estimatedTotal: true },
+        _count: { _all: true },
+      }),
+      this.prisma.approvalTask.count({
+        where: { assigneeId: auth.userId, status: 'PENDING', instance: { companyId: auth.companyId, entityType: 'purchase_requisition' } },
+      }),
       this.prisma.purchaseRequisition.findMany({
         where,
         orderBy: { updatedAt: 'desc' },
         take: 8,
-        select: { id: true, requisitionNo: true, title: true, status: true, priority: true, estimatedTotal: true, requiredBy: true, updatedAt: true, requester: { select: { fullName: true } } },
+        select: {
+          id: true,
+          requisitionNo: true,
+          title: true,
+          status: true,
+          priority: true,
+          estimatedTotal: true,
+          requiredBy: true,
+          updatedAt: true,
+          requester: { select: { fullName: true } },
+        },
       }),
     ]);
     const count = (rows: Array<{ status: string; _count: { _all: number } }>) => Object.fromEntries(rows.map((r) => [r.status, r._count._all]));
@@ -373,7 +406,10 @@ export class RequisitionsService implements OnModuleInit {
       this.prisma.approvalInstance.findMany({
         where: { companyId: auth.companyId, entityType: 'purchase_requisition', entityId: id },
         include: {
-          tasks: { include: { assignee: { select: { id: true, fullName: true } }, stage: { select: { name: true } } }, orderBy: [{ sequence: 'asc' }, { createdAt: 'asc' }] },
+          tasks: {
+            include: { assignee: { select: { id: true, fullName: true } }, stage: { select: { name: true } } },
+            orderBy: [{ sequence: 'asc' }, { createdAt: 'asc' }],
+          },
           policy: { select: { name: true, policyVersion: true } },
         },
         orderBy: { submittedAt: 'desc' },
