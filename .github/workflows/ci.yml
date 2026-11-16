@@ -14,12 +14,10 @@ concurrency:
 
 env:
   NODE_VERSION: '20.18.0'
+  # Credentials of the ephemeral service container only — not secrets.
   DATABASE_URL: postgresql://kenzo:kenzo_ci@127.0.0.1:5432/kenzo_kore?schema=public
   DIRECT_DATABASE_URL: postgresql://kenzo:kenzo_ci@127.0.0.1:5432/kenzo_kore?schema=public
   TEST_DATABASE_URL: postgresql://kenzo:kenzo_ci@127.0.0.1:5432/kenzo_kore_test?schema=public
-  # CI-only throwaway secrets (no real data). Production secrets come from the secret manager.
-  SESSION_SECRET: ci-only-session-secret-not-used-anywhere-else-0123456789
-  DATA_ENCRYPTION_KEY: Y2ktb25seS0zMi1ieXRlLWtleS1mb3ItdGVzdGluZyE=
   NEXT_TELEMETRY_DISABLED: '1'
 
 jobs:
@@ -34,6 +32,10 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
       - run: npm ci
+      - name: Generate ephemeral CI secrets
+        run: |
+          echo "SESSION_SECRET=$(openssl rand -base64 48 | tr -d '\n')" >> "$GITHUB_ENV"
+          echo "DATA_ENCRYPTION_KEY=$(openssl rand -base64 32 | tr -d '\n')" >> "$GITHUB_ENV"
       - name: Format check
         run: npm run format:check
       - name: Lint
@@ -67,6 +69,15 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
       - run: npm ci
+      - name: Generate ephemeral CI secrets
+        run: |
+          echo "SESSION_SECRET=$(openssl rand -base64 48 | tr -d '\n')" >> "$GITHUB_ENV"
+          echo "DATA_ENCRYPTION_KEY=$(openssl rand -base64 32 | tr -d '\n')" >> "$GITHUB_ENV"
+      # `npm ci` runs @prisma/client's postinstall from the repo root, where there is
+      # no schema, so the client stays an uninitialised stub. Generate it explicitly;
+      # the quality job gets this via `npm run typecheck`.
+      - name: Generate Prisma client
+        run: npx prisma generate --schema apps/api/prisma/schema.prisma
       - name: Create test database
         run: PGPASSWORD=kenzo_ci psql -h 127.0.0.1 -U kenzo -d kenzo_kore -c "CREATE DATABASE kenzo_kore_test"
       - name: Validate migrations (up · drift · down · up)

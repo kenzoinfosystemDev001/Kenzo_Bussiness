@@ -1,0 +1,16 @@
+# Reviewed false positives for the gitleaks secret scan (CI "Secret scan" step).
+# Each line is a finding fingerprint: <commit>:<file>:<rule>:<line>.
+# Only add a line here after confirming the value is NOT a real credential.
+
+# Commit 2f1bf8e, .github/workflows/ci.yml line 22: a throwaway AES key literal that
+# only ever encrypted ephemeral CI test data. CI now generates both test secrets at
+# run time (see the "Generate ephemeral CI secrets" steps), so no key literal remains
+# in the tree; this entry covers the historical commit only.
+2f1bf8ed3dc8a780d757f3556954e86289e59084:.github/workflows/ci.yml:generic-api-key:22
+
+# Commit 2f1bf8e, apps/api/test/integration/auth.spec.ts lines 187-188: literal
+# passwords typed by the password-reset test ("Another-Strong-Pass-42" and
+# "Yet-Another-Pass-77"). They belong to users the test itself creates in a
+# throwaway database and grant no access to anything.
+2f1bf8ed3dc8a780d757f3556954e86289e59084:apps/api/test/integration/auth.spec.ts:generic-api-key:187
+2f1bf8ed3dc8a780d757f3556954e86289e59084:apps/api/test/integration/auth.spec.ts:generic-api-key:188
