@@ -35,9 +35,11 @@ sh: line 1: tsc: command not found
 Error: [BUILD_UTILS_SPAWN_127] Command "npm install" exited with 127
 ```
 
-Vercel sets `NODE_ENV=production` for builds. When `--omit` is not given, npm takes `NODE_ENV=production` to mean "skip devDependencies", so TypeScript — a devDependency — was never installed. The repository root's `postinstall` then ran `build:shared`, which needs `tsc`, and the install failed before any build command ran.
+The repository root compiles `packages/shared` from its `postinstall`, so every install runs that build. The script invoked `tsc` and depended on npm putting `node_modules/.bin` on PATH. On Vercel that bin link was missing even though the TypeScript _package_ itself was installed, so the shell could not find the command and the install died before any build ran.
 
-`apps/web/vercel.json` fixes this with `installCommand: npm install --include=dev`.
+Reproduced in an isolated npm workspace: with `NPM_CONFIG_PRODUCTION=true`, `npm install` leaves `node_modules/.bin/tsc` missing and a workspace postinstall fails in exactly this way. Vercel builds run with `NODE_ENV=production`.
+
+The fix is `scripts/run-tsc.mjs`, which locates the compiler through Node module resolution rather than PATH; `packages/shared` uses it for both `build` and `typecheck`. Verified by running the shared build in a tree where `tsc` was absent from PATH, and by a full `next build` in a production-style install.
 
 > Do **not** fix this with `include=dev` in a committed `.npmrc`. npm lets `include` win over `omit`, which silently breaks `npm audit --omit=dev` (the CI `audit:deps` gate) by pulling development packages back into the production audit. This was tested: the gate flipped from pass to fail.
 
@@ -57,7 +59,7 @@ In the Vercel project → **Settings → General**:
 The three command overrides must be switched off so `apps/web/vercel.json` applies. In particular:
 
 - **Output Directory must not be `dist`.** Next.js writes to `.next`, and Vercel's Next.js preset finds it on its own. Pointing at `dist` fails the deploy after an otherwise successful build.
-- **Build Command must not be a bare `next build`.** The web app imports the compiled output of `@kenzo/shared`, so that package must be built first; `vercel.json` does both.
+- **Build Command must not be overridden.** Vercel’s Next.js preset runs the build itself; `packages/shared` is compiled by the repository root’s `postinstall`.
 
 `vercel.json` is read from the Root Directory, so it only takes effect once Root Directory is `apps/web`.
 
