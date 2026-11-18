@@ -22,9 +22,24 @@ Host the API on a platform that runs a container or a persistent Node process �
 
 ## Why the Vercel build failed
 
-The project had no Vercel configuration, so Vercel built from the repository root. The root `package.json` is a workspace manifest with no `next` dependency and no Next.js app, so there is nothing there for Vercel to detect or serve.
+Two separate causes, in the order they appeared:
 
-The fix is to point Vercel at the web app and let it install from the workspace root.
+**1. No Vercel configuration.** Vercel built from the repository root, which is a workspace manifest with no `next` dependency and no Next.js app — nothing to detect or serve.
+
+**2. `tsc: command not found` (exit 127) during `npm install`.**
+
+```
+> @kenzo/shared@0.1.0 build
+> tsc -p tsconfig.build.json
+sh: line 1: tsc: command not found
+Error: [BUILD_UTILS_SPAWN_127] Command "npm install" exited with 127
+```
+
+Vercel sets `NODE_ENV=production` for builds. When `--omit` is not given, npm takes `NODE_ENV=production` to mean "skip devDependencies", so TypeScript — a devDependency — was never installed. The repository root's `postinstall` then ran `build:shared`, which needs `tsc`, and the install failed before any build command ran.
+
+`apps/web/vercel.json` fixes this with `installCommand: npm install --include=dev`.
+
+> Do **not** fix this with `include=dev` in a committed `.npmrc`. npm lets `include` win over `omit`, which silently breaks `npm audit --omit=dev` (the CI `audit:deps` gate) by pulling development packages back into the production audit. This was tested: the gate flipped from pass to fail.
 
 ## Vercel settings for `apps/web`
 
@@ -35,10 +50,16 @@ In the Vercel project → **Settings → General**:
 | Root Directory                           | `apps/web`                                            |
 | Include files outside the root directory | **enabled** (needed: `packages/shared` lives outside) |
 | Framework Preset                         | Next.js (auto-detected)                               |
-| Build Command                            | leave empty — `apps/web/vercel.json` supplies it      |
-| Install Command                          | leave empty — Vercel installs from the workspace root |
+| Build Command                            | **override off / empty**                              |
+| Output Directory                         | **override off / empty**                              |
+| Install Command                          | **override off / empty**                              |
 
-`apps/web/vercel.json` builds `@kenzo/shared` before `next build`, because the web app imports its compiled output.
+The three command overrides must be switched off so `apps/web/vercel.json` applies. In particular:
+
+- **Output Directory must not be `dist`.** Next.js writes to `.next`, and Vercel's Next.js preset finds it on its own. Pointing at `dist` fails the deploy after an otherwise successful build.
+- **Build Command must not be a bare `next build`.** The web app imports the compiled output of `@kenzo/shared`, so that package must be built first; `vercel.json` does both.
+
+`vercel.json` is read from the Root Directory, so it only takes effect once Root Directory is `apps/web`.
 
 ### Required environment variable
 
