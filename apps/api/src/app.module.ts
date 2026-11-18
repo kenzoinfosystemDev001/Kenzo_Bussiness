@@ -7,7 +7,7 @@ import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { AuthGuard } from './common/guards/auth.guard';
 import { PermissionsGuard } from './common/guards/permissions.guard';
 import { InfrastructureModule } from './infrastructure/infrastructure.module';
-import { AccessControlModule, DocumentsModule, IdentityModule, OrganizationModule, PlatformModule, VendorsModule, WorkflowModule } from './modules/modules';
+import { AccessControlModule, DocumentsModule, IdentityModule, OrganizationModule, PlatformModule, SourcingModule, VendorsModule, WorkflowModule } from './modules/modules';
 
 @Module({
   imports: [
@@ -21,6 +21,7 @@ import { AccessControlModule, DocumentsModule, IdentityModule, OrganizationModul
     DocumentsModule,
     PlatformModule,
     VendorsModule,
+    SourcingModule,
   ],
   providers: [
     { provide: APP_FILTER, useClass: AllExceptionsFilter },

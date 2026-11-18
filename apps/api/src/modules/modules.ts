@@ -31,6 +31,11 @@ import { VendorDocumentsService } from './vendors/vendor-documents.service';
 import { VendorInsightsService } from './vendors/vendor-insights.service';
 import { VendorsController } from './vendors/vendors.controller';
 import { VendorsService } from './vendors/vendors.service';
+import { QuotationsService } from './sourcing/quotations.service';
+import { RequisitionsService } from './sourcing/requisitions.service';
+import { RfqService } from './sourcing/rfq.service';
+import { SourcingCommon } from './sourcing/sourcing-common';
+import { QuotationsController, RequisitionsController, RfqController } from './sourcing/sourcing.controller';
 
 /** Access control — authorization decisions and separation of duties. Exported to every module. */
 @Global()
@@ -94,3 +99,15 @@ export class PlatformModule {}
   exports: [VendorsService],
 })
 export class VendorsModule {}
+
+/**
+ * Sourcing (Phase 03) — purchase requisitions, RFQs, vendor invitations and
+ * versioned quotations. Depends on workflow (approval engine + hooks), vendors
+ * (eligibility), documents and numbering; nothing depends on it yet.
+ */
+@Module({
+  controllers: [RequisitionsController, RfqController, QuotationsController],
+  providers: [SourcingCommon, RequisitionsService, RfqService, QuotationsService],
+  exports: [RequisitionsService, RfqService, QuotationsService],
+})
+export class SourcingModule {}

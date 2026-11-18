@@ -62,6 +62,15 @@ export const DEFAULT_POLICY_TEMPLATES: PolicyTemplate[] = [
     ],
   },
   {
+    entityType: 'rfq',
+    name: 'Standalone RFQ authorisation',
+    description: 'An RFQ raised without an approved requisition needs procurement sign-off before it reaches vendors.',
+    allowDelegation: true,
+    stages: [
+      { sequence: 1, name: 'Procurement authorisation', mode: 'ANY', approverType: 'ROLE', approverRoleKey: 'PROCUREMENT_MANAGER', slaHours: 24, escalationRoleKey: 'APPROVER' },
+    ],
+  },
+  {
     entityType: 'vendor_bank_change',
     name: 'Vendor bank-detail change (maker-checker)',
     description: 'Vendor master reviewer then finance approver. The proposer and the vendor creator are always excluded.',

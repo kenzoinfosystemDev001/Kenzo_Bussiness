@@ -54,12 +54,12 @@ export class NotificationService implements OnModuleInit {
     if (input.email) await this.queueEmail(db, { ...input.email, template: input.type, companyId: input.companyId, aggregateId: notification.id });
   }
 
-  /** Email without an in-app notification (invitations, password resets). */
+  /** Email without an in-app notification (invitations, password resets). Returns the outbox event id, usable as a delivery reference. */
   async queueEmail(
     db: Db,
     input: { to: string; subject: string; text: string; template: string; companyId: string | null; aggregateId: string },
-  ): Promise<void> {
-    await this.outbox.enqueue(db, {
+  ): Promise<string> {
+    return this.outbox.enqueue(db, {
       companyId: input.companyId,
       eventType: 'notification.email',
       aggregateType: 'email',

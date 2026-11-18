@@ -14,7 +14,10 @@ describe('Approval engine', () => {
     await h.start();
     const hooks = h.app.get(ApprovalHooksRegistry);
     const record = (outcome: string) => async (_tx: unknown, instance: { entityId: string }) => void outcomes.push({ entityId: instance.entityId, outcome });
-    hooks.register('purchase_requisition', {
+    // The engine is entity-agnostic, so these tests drive an entity type no module
+    // owns. A type owned by a module (purchase_requisition, rfq, vendor…) already
+    // has a handler, and the registry refuses a second one.
+    hooks.register('purchase_order', {
       onApproved: record('approved'),
       onRejected: record('rejected'),
       onReturned: record('returned'),
@@ -46,7 +49,7 @@ describe('Approval engine', () => {
   async function submit(requester: TestUser, company: TestCompany, input: Partial<SubmitForApprovalInput> = {}) {
     const auth = await ctx(requester, company);
     return h.prisma.tx((tx) =>
-      h.app.get(ApprovalEngine).submit(tx, auth, { entityType: 'purchase_requisition', entityId: randomUUID(), entityReference: 'PR-TEST', ...input }),
+      h.app.get(ApprovalEngine).submit(tx, auth, { entityType: 'purchase_order', entityId: randomUUID(), entityReference: 'PO-TEST', ...input }),
     );
   }
 
@@ -77,8 +80,8 @@ describe('Approval engine', () => {
     const director = await h.user(company, ['APPROVER']);
     const requester = await h.user(company, ['REQUESTER'], { departmentId: company.departments.eng, managerId: head.id });
     await publish(admin, {
-      entityType: 'purchase_requisition',
-      name: 'PR policy',
+      entityType: 'purchase_order',
+      name: 'PO policy',
       requireIndependentApproval: true,
       distinctApproversAcrossStages: true,
       allowDelegation: true,
@@ -257,7 +260,7 @@ describe('Approval engine', () => {
       delegateId: deputy.id,
       validFrom: new Date(now - 60_000).toISOString(),
       validUntil: new Date(now + 3600_000).toISOString(),
-      entityTypes: ['purchase_requisition'],
+      entityTypes: ['purchase_order'],
       reason: 'On leave',
     });
     expect(d.status).toBe(201);
@@ -279,7 +282,7 @@ describe('Approval engine', () => {
     const finance2 = await h.user(company, ['FINANCE_MANAGER']);
     const requester = await h.user(company, ['REQUESTER']);
     await publish(admin, {
-      entityType: 'purchase_requisition',
+      entityType: 'purchase_order',
       name: 'Distinct',
       requireIndependentApproval: true,
       distinctApproversAcrossStages: true,
@@ -314,7 +317,7 @@ describe('Approval engine', () => {
     const f2 = await h.user(company, ['FINANCE_MANAGER']);
     const requester = await h.user(company, ['REQUESTER']);
     await publish(admin, {
-      entityType: 'purchase_requisition',
+      entityType: 'purchase_order',
       name: 'Parallel ALL',
       requireIndependentApproval: true,
       distinctApproversAcrossStages: true,
@@ -359,11 +362,11 @@ describe('Approval engine', () => {
   it('versions policies: publishing retires the previous version and in-flight approvals keep theirs', async () => {
     const { company, admin, requester } = await setup();
     const before = await submit(requester, company, { amount: '100.00' });
-    const active = (await admin.get('/approval-policies?entityType=purchase_requisition')).body.items.find((p: { status: string }) => p.status === 'ACTIVE');
+    const active = (await admin.get('/approval-policies?entityType=purchase_order')).body.items.find((p: { status: string }) => p.status === 'ACTIVE');
     const clone = await admin.post(`/approval-policies/${active.id}/clone`);
     expect(clone.body.policyVersion).toBe(active.policyVersion + 1);
     await admin.post(`/approval-policies/${clone.body.id}/publish`, { reason: 'v2' });
-    const statuses = (await admin.get('/approval-policies?entityType=purchase_requisition')).body.items.map((p: { id: string; status: string }) => [
+    const statuses = (await admin.get('/approval-policies?entityType=purchase_order')).body.items.map((p: { id: string; status: string }) => [
       p.id,
       p.status,
     ]);
@@ -376,7 +379,7 @@ describe('Approval engine', () => {
 
   it('simulates the chain without creating anything', async () => {
     const { company, admin, requester, head, finance } = await setup();
-    const active = (await admin.get('/approval-policies?entityType=purchase_requisition')).body.items.find((p: { status: string }) => p.status === 'ACTIVE');
+    const active = (await admin.get('/approval-policies?entityType=purchase_order')).body.items.find((p: { status: string }) => p.status === 'ACTIVE');
     const count = await h.prisma.approvalInstance.count({ where: { companyId: company.id } });
     const sim = await admin.post(`/approval-policies/${active.id}/simulate`, { amount: '20000', requesterId: requester.id });
     expect(sim.body.ok).toBe(true);
