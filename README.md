@@ -63,7 +63,9 @@ CI runs all of the above (`.github/workflows/ci.yml`).
 - [Architecture](docs/ARCHITECTURE.md)
 - [Technical decisions](docs/TECHNICAL_DECISIONS.md)
 - [Implementation roadmap](docs/IMPLEMENTATION_ROADMAP.md)
+- [Deployment](docs/DEPLOYMENT.md) — what can run on Vercel, and what cannot
 - [Phase 01 completion report](docs/PHASE_01_COMPLETION_REPORT.md)
+- [Phase 02 completion report](docs/PHASE_02_COMPLETION_REPORT.md)
 - Product blueprint: `Kenzo-Kore_BusinessOS_Product_Blueprint_PRD.docx`
 
 ## Security notes
