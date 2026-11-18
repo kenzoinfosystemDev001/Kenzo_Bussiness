@@ -7,6 +7,22 @@
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 
+// This is a development loop: `tsc --watch` and `node --watch` both stay
+// resident, which costs far more memory than the compiled server and tolerates
+// type errors instead of failing. Deployed hosts must build once and run
+// `dist/main.js`; starting this script there exhausts the heap instead.
+if (process.env.NODE_ENV === 'production') {
+  console.error(
+    [
+      'dev-api.mjs is a development-only watcher and must not run with NODE_ENV=production.',
+      'Build and start the compiled server instead:',
+      '  npm run build -w @kenzo/api',
+      '  npm run start -w @kenzo/api',
+    ].join('\n'),
+  );
+  process.exit(1);
+}
+
 const isWin = process.platform === 'win32';
 const procs = [];
 

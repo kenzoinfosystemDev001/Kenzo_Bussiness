@@ -1,0 +1,68 @@
+# Render blueprint for the Kenzo-Kore API (apps/api).
+#
+# Render → Blueprints → New Blueprint Instance → pick this repository.
+# Everything here is created on the free plan; see docs/DEPLOYMENT.md for the
+# limits that implies (free Postgres expires, free web services sleep) and for
+# the two secrets you must supply by hand.
+#
+# The service builds once and runs the compiled server. It must never run
+# `npm run dev`: that keeps `tsc --watch` and `node --watch` resident and
+# exhausts the heap on a 512 MB instance.
+
+databases:
+  - name: kenzo-db
+    databaseName: kenzo_kore
+    user: kenzo
+    plan: free
+    postgresMajorVersion: '16'
+
+services:
+  - type: web
+    name: kenzo-api
+    runtime: node
+    plan: free
+    # Build from the repository root: this is an npm workspace and the API
+    # depends on packages/shared, which the root postinstall compiles.
+    rootDir: .
+    buildCommand: npm ci && npm run build -w @kenzo/api
+    # `migrate deploy` is idempotent, so running it on every boot is safe and
+    # keeps the schema in step without a paid pre-deploy command.
+    startCommand: npm run db:migrate -w @kenzo/api && npm run start -w @kenzo/api
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: NODE_VERSION
+        value: 20.18.0
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: kenzo-db
+          property: connectionString
+      # Render Postgres is not pooled, so the migration connection is the same URL.
+      - key: DIRECT_DATABASE_URL
+        fromDatabase:
+          name: kenzo-db
+          property: connectionString
+      - key: SESSION_SECRET
+        generateValue: true
+      # 32 bytes, base64. Generate and paste in the dashboard:
+      #   node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
+      - key: DATA_ENCRYPTION_KEY
+        sync: false
+      # Public URL of the web app, e.g. https://kenzo-kore.vercel.app.
+      # A mismatch makes every login and write fail with 403 CSRF_INVALID.
+      - key: APP_ORIGIN
+        sync: false
+      - key: COOKIE_SECURE
+        value: 'true'
+      # Render terminates TLS at its load balancer.
+      - key: TRUST_PROXY
+        value: 'true'
+      - key: LOG_LEVEL
+        value: info
+      - key: MAIL_TRANSPORT
+        value: log
+      # Uploaded documents land here. Without a persistent disk (paid plans)
+      # this directory is wiped on every deploy and restart.
+      - key: DOCUMENT_STORAGE_DIR
+        value: storage/documents
