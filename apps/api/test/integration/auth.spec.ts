@@ -78,6 +78,19 @@ describe('Authentication & sessions', () => {
     expect(ok.status).toBe(200);
   });
 
+  it('accepts the loopback twin of APP_ORIGIN outside production (localhost ↔ 127.0.0.1)', async () => {
+    // Browsers treat these as different origins, but they are the same local server:
+    // rejecting one would fail every write depending on which URL the developer typed.
+    const user = await h.user(company, ['REQUESTER']);
+    const twin = ORIGIN.replace('localhost', '127.0.0.1');
+    const res = await h.http.post('/api/v1/auth/login').set('Origin', twin).send({ email: user.email, password: PASSWORD });
+    expect(res.status).toBe(200);
+    // A different port on the same host is still refused.
+    const otherPort = await h.http.post('/api/v1/auth/login').set('Origin', 'http://localhost:4321').send({ email: user.email, password: PASSWORD });
+    expect(otherPort.status).toBe(403);
+    expect(otherPort.body.error.code).toBe('CSRF_INVALID');
+  });
+
   it('exposes the effective permission set on /auth/me', async () => {
     const { client } = await h.as(company, ['FINANCE_EXECUTIVE']);
     const me = await client.get('/auth/me');

@@ -26,7 +26,7 @@ const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
  */
 @Injectable()
 export class AuthGuard implements CanActivate {
-  private readonly allowedOrigin: string;
+  private readonly allowedOrigins: ReadonlySet<string>;
 
   constructor(
     private readonly reflector: Reflector,
@@ -35,7 +35,7 @@ export class AuthGuard implements CanActivate {
     private readonly prisma: PrismaService,
     @Inject(ENV) env: Env,
   ) {
-    this.allowedOrigin = new URL(env.APP_ORIGIN).origin;
+    this.allowedOrigins = new Set(env.ALLOWED_ORIGINS);
   }
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -46,7 +46,11 @@ export class AuthGuard implements CanActivate {
 
     if (mutating) {
       const origin = req.header('origin');
-      if (origin && origin !== this.allowedOrigin) throw new AppError('CSRF_INVALID', 'Request origin is not allowed');
+      if (origin && !this.allowedOrigins.has(origin)) {
+        // The origin is echoed (truncated) because a mismatch is nearly always a
+        // misconfigured APP_ORIGIN; it is JSON, never HTML, so nothing is injectable.
+        throw new AppError('CSRF_INVALID', `Request origin ${origin.slice(0, 100)} is not allowed. Expected ${[...this.allowedOrigins].join(' or ')}.`);
+      }
     }
     if (isPublic) return true;
 

@@ -65,7 +65,34 @@ const schema = z
     MAIL_FROM: z.string().default('Kenzo-Kore BusinessOS <no-reply@kenzo.local>'),
     LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
   })
-  .transform((e) => ({ ...e, COOKIE_SECURE: e.COOKIE_SECURE ?? e.NODE_ENV === 'production' }));
+  .transform((e) => ({
+    ...e,
+    COOKIE_SECURE: e.COOKIE_SECURE ?? e.NODE_ENV === 'production',
+    ALLOWED_ORIGINS: allowedOrigins(e.APP_ORIGIN, e.NODE_ENV),
+  }));
+
+/**
+ * Origins accepted for state-changing requests (CSRF defence) and CORS.
+ *
+ * Production allows exactly APP_ORIGIN. Outside production we additionally
+ * accept the loopback twin of that origin — `localhost` and `127.0.0.1` are the
+ * same server but different origins to a browser, so hitting the app through
+ * the "wrong" one would otherwise fail every write with CSRF_INVALID. Only the
+ * configured port is ever accepted, and only loopback hosts.
+ */
+function allowedOrigins(appOrigin: string, nodeEnv: string): string[] {
+  const url = new URL(appOrigin);
+  const origins = new Set([url.origin]);
+  if (nodeEnv !== 'production') {
+    const twin = { localhost: '127.0.0.1', '127.0.0.1': 'localhost', '[::1]': 'localhost' }[url.hostname];
+    if (twin) {
+      const alt = new URL(url.toString());
+      alt.hostname = twin;
+      origins.add(alt.origin);
+    }
+  }
+  return [...origins];
+}
 
 export type Env = z.infer<typeof schema>;
 

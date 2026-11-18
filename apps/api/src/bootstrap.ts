@@ -37,7 +37,7 @@ export async function createApp(options: { logger?: boolean } = {}): Promise<INe
 
   // The web app reaches the API through a same-origin proxy, so CORS is only
   // needed for direct cross-origin development access to APP_ORIGIN.
-  app.enableCors({ origin: [env.APP_ORIGIN], credentials: true, methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] });
+  app.enableCors({ origin: env.ALLOWED_ORIGINS, credentials: true, methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] });
   app.enableShutdownHooks();
   return app;
 }
