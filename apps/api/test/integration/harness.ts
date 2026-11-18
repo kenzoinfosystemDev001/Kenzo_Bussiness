@@ -84,12 +84,19 @@ export class Harness {
     return this.app.get(MailService);
   }
 
+  /**
+   * Drains the outbox completely. The table is shared by every suite, so a
+   * fixed iteration cap let a backlog left by one suite starve the next one's
+   * flush of its own event — the dispatcher claims oldest-first. The cap here
+   * only guards against a genuinely stuck dispatcher.
+   */
   async flushOutbox(): Promise<void> {
     const outbox = this.app.get(OutboxService);
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < 500; i++) {
       const r = await outbox.dispatchOnce();
-      if (r.processed + r.failed === 0) break;
+      if (r.processed + r.failed === 0) return;
     }
+    throw new Error('flushOutbox did not drain the outbox in 500 passes');
   }
 
   uid(prefix = ''): string {

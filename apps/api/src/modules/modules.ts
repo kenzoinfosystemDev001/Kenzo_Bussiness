@@ -31,10 +31,14 @@ import { VendorDocumentsService } from './vendors/vendor-documents.service';
 import { VendorInsightsService } from './vendors/vendor-insights.service';
 import { VendorsController } from './vendors/vendors.controller';
 import { VendorsService } from './vendors/vendors.service';
+import { AwardService } from './sourcing/award.service';
+import { EvaluationConfigController, AwardsController, RfqEvaluationController } from './sourcing/evaluation.controller';
+import { EvaluationService } from './sourcing/evaluation.service';
 import { QuotationsService } from './sourcing/quotations.service';
 import { RequisitionsService } from './sourcing/requisitions.service';
 import { RfqService } from './sourcing/rfq.service';
 import { SourcingCommon } from './sourcing/sourcing-common';
+import { SourcingReportsService } from './sourcing/sourcing-reports.service';
 import { QuotationsController, RequisitionsController, RfqController } from './sourcing/sourcing.controller';
 
 /** Access control — authorization decisions and separation of duties. Exported to every module. */
@@ -101,13 +105,14 @@ export class PlatformModule {}
 export class VendorsModule {}
 
 /**
- * Sourcing (Phase 03) — purchase requisitions, RFQs, vendor invitations and
- * versioned quotations. Depends on workflow (approval engine + hooks), vendors
+ * Sourcing (Phase 03/04) — purchase requisitions, RFQs, vendor invitations,
+ * versioned quotations, and the quotation comparison, weighted evaluation and
+ * award workflow raised from them. Depends on workflow (approval engine + hooks), vendors
  * (eligibility), documents and numbering; nothing depends on it yet.
  */
 @Module({
-  controllers: [RequisitionsController, RfqController, QuotationsController],
-  providers: [SourcingCommon, RequisitionsService, RfqService, QuotationsService],
-  exports: [RequisitionsService, RfqService, QuotationsService],
+  controllers: [RequisitionsController, RfqController, QuotationsController, EvaluationConfigController, RfqEvaluationController, AwardsController],
+  providers: [SourcingCommon, RequisitionsService, RfqService, QuotationsService, EvaluationService, AwardService, SourcingReportsService],
+  exports: [RequisitionsService, RfqService, QuotationsService, EvaluationService, AwardService],
 })
 export class SourcingModule {}

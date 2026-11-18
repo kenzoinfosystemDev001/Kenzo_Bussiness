@@ -67,7 +67,33 @@ export const DEFAULT_POLICY_TEMPLATES: PolicyTemplate[] = [
     description: 'An RFQ raised without an approved requisition needs procurement sign-off before it reaches vendors.',
     allowDelegation: true,
     stages: [
-      { sequence: 1, name: 'Procurement authorisation', mode: 'ANY', approverType: 'ROLE', approverRoleKey: 'PROCUREMENT_MANAGER', slaHours: 24, escalationRoleKey: 'APPROVER' },
+      {
+        sequence: 1,
+        name: 'Procurement authorisation',
+        mode: 'ANY',
+        approverType: 'ROLE',
+        approverRoleKey: 'PROCUREMENT_MANAGER',
+        slaHours: 24,
+        escalationRoleKey: 'APPROVER',
+      },
+    ],
+  },
+  {
+    entityType: 'rfq_award',
+    name: 'Quotation award authorisation',
+    description: 'A recommended award commits the company to a vendor, so it is authorised before the vendor is told.',
+    allowDelegation: true,
+    stages: [
+      {
+        sequence: 1,
+        name: 'Procurement authorisation',
+        mode: 'ANY',
+        approverType: 'ROLE',
+        approverRoleKey: 'PROCUREMENT_MANAGER',
+        slaHours: 24,
+        escalationRoleKey: 'APPROVER',
+      },
+      { sequence: 2, name: 'Finance authorisation', mode: 'ANY', approverType: 'ROLE', approverRoleKey: 'FINANCE_MANAGER', slaHours: 48, minAmount: '500000' },
     ],
   },
   {

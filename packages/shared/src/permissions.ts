@@ -101,6 +101,8 @@ export const PERMISSIONS = {
   'quotation.read': p({ module: 'sourcing', description: 'View vendor quotations and comparisons', phase: 3 }),
   'quotation.manage': p({ module: 'sourcing', description: 'Capture quotations and evaluations', phase: 3 }),
   'quotation.award': p({ module: 'sourcing', description: 'Recommend and award quotations', sensitive: true, phase: 3 }),
+  'evaluation.configure': p({ module: 'sourcing', description: 'Configure evaluation criteria and weights', sensitive: true, phase: 4 }),
+  'exchange_rate.manage': p({ module: 'sourcing', description: 'Record approved exchange rates used to normalise quotations', sensitive: true, phase: 4 }),
 
   // ── Procurement (Phase 4) ──────────────────────────────────────────────
   'po.read': p({ module: 'procurement', description: 'View purchase orders', scopable: true, phase: 4 }),

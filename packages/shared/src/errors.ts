@@ -23,6 +23,8 @@ export const ERROR_CODES = [
   'RATE_LIMITED',
   'APPROVAL_NO_POLICY',
   'APPROVAL_NO_ELIGIBLE_APPROVER',
+  /** A reviewer must declare any conflict of interest before taking part in an evaluation. */
+  'CONFLICT_DECLARATION_REQUIRED',
   'PAYLOAD_TOO_LARGE',
   'UNSUPPORTED_MEDIA_TYPE',
   'INTERNAL_ERROR',

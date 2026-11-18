@@ -162,6 +162,11 @@ model Company {
   rfqCommunications    RfqCommunication[]
   quotations           Quotation[]
   quotationVersions    QuotationVersion[]
+  exchangeRates        ExchangeRate[]
+  criteriaSets         EvaluationCriteriaSet[]
+  rfqEvaluations       RfqEvaluation[]
+  conflictDeclarations ConflictOfInterestDeclaration[]
+  rfqAwards            RfqAward[]
 
   @@map("company")
 }
@@ -282,6 +287,14 @@ model User {
   quotationVersionsSubmitted QuotationVersion[]         @relation("QuotationVersionSubmittedBy")
   quotationVersionsCreated   QuotationVersion[]         @relation("QuotationVersionCreatedBy")
   quotationReviews           QuotationReview[]          @relation("QuotationReviewer")
+  exchangeRatesApproved      ExchangeRate[]             @relation("ExchangeRateApprovedBy")
+  criteriaSetsCreated        EvaluationCriteriaSet[]    @relation("CriteriaSetCreatedBy")
+  evaluationsStarted         RfqEvaluation[]            @relation("EvaluationStartedBy")
+  evaluationScores           EvaluationScore[]          @relation("EvaluationScoredBy")
+  conflictDeclarations       ConflictOfInterestDeclaration[] @relation("ConflictDeclarationUser")
+  evaluationNotes            EvaluationNote[]           @relation("EvaluationNoteAuthor")
+  awardsRecommended          RfqAward[]                 @relation("AwardRecommendedBy")
+  awardEvents                RfqAwardEvent[]            @relation("AwardEventActor")
 
   @@unique([identityProvider, identitySubject])
   @@index([companyId, status])
@@ -497,6 +510,7 @@ model ApprovalInstance {
   requester User            @relation("InstanceRequester", fields: [requesterId], references: [id], onDelete: Restrict)
   tasks     ApprovalTask[]
   events    ApprovalEvent[]
+  rfqAwards RfqAward[]
 
   @@index([companyId, entityType, entityId])
   @@index([companyId, status, submittedAt])
@@ -629,6 +643,7 @@ model Document {
   rfqDocuments     Rfq[]
   rfqEvidence      RfqCommunication[]
   quotationSources QuotationVersion[]
+  awardDocuments   RfqAward[]          @relation("AwardDocument")
 
   @@index([companyId, createdAt])
   @@index([companyId, sha256])
@@ -895,6 +910,7 @@ model Vendor {
   preferredOnLines   RequisitionLine[]         @relation("RequisitionLinePreferredVendor")
   rfqInvitations     RfqInvitation[]           @relation("RfqInvitationVendor")
   quotations         Quotation[]               @relation("QuotationVendor")
+  awardLines         RfqAwardLine[]            @relation("AwardLineVendor")
 
   @@unique([companyId, vendorCode])
   @@unique([companyId, id])
@@ -1214,6 +1230,8 @@ model Rfq {
   status                 RfqStatus @default(DRAFT)
   statusReason           String?   @map("status_reason") @db.VarChar(2000)
   isStandalone           Boolean   @default(false) @map("is_standalone")
+  /// Procurement policy, fixed when the RFQ is raised: may lines be split across vendors?
+  allowPartialAward      Boolean   @default(false) @map("allow_partial_award")
   standaloneReason       String?   @map("standalone_reason") @db.VarChar(1000)
   rfqDocumentId          String?   @map("rfq_document_id") @db.Uuid
   sentAt                 DateTime? @map("sent_at") @db.Timestamptz(6)
@@ -1233,6 +1251,8 @@ model Rfq {
   communications RfqCommunication[]
   quotations     Quotation[]
   statusHistory  RfqStatusHistory[]
+  evaluation     RfqEvaluation?
+  awards         RfqAward[]
 
   @@unique([companyId, rfqNo])
   @@unique([companyId, id])
@@ -1257,6 +1277,7 @@ model RfqLine {
   rfq             Rfq                    @relation(fields: [companyId, rfqId], references: [companyId, id], onDelete: Cascade)
   requisitionLine RequisitionLine?       @relation(fields: [requisitionLineId], references: [id], onDelete: Restrict)
   quotationLines  QuotationVersionLine[]
+  awardLines      RfqAwardLine[]
 
   @@unique([rfqId, lineNo])
   @@unique([rfqId, id])
@@ -1358,8 +1379,10 @@ model Quotation {
   vendor     Vendor             @relation("QuotationVendor", fields: [companyId, vendorId], references: [companyId, id], onDelete: Restrict)
   invitation RfqInvitation      @relation(fields: [invitationId], references: [id], onDelete: Restrict)
   createdBy  User               @relation("QuotationCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
-  versions   QuotationVersion[]
-  reviews    QuotationReview[]
+  versions    QuotationVersion[]
+  reviews     QuotationReview[]
+  evaluations QuotationEvaluation[]
+  awardLines  RfqAwardLine[]        @relation("AwardLineQuotation")
 
   @@unique([companyId, quotationNo])
   @@unique([rfqId, vendorId])
@@ -1379,6 +1402,8 @@ model QuotationVersion {
   quotationDate    DateTime             @map("quotation_date") @db.Date
   validUntil       DateTime             @map("valid_until") @db.Date
   currency         String               @db.Char(3)
+  /// Whether the quoted unit prices already contain the tax. Never defaulted at comparison time.
+  taxTreatment     TaxTreatment         @default(EXCLUSIVE) @map("tax_treatment")
   deliveryLeadDays Int?                 @map("delivery_lead_days")
   warranty         String?              @db.VarChar(300)
   paymentTermsDays Int?                 @map("payment_terms_days")
@@ -1405,6 +1430,7 @@ model QuotationVersion {
   submittedBy    User?                  @relation("QuotationVersionSubmittedBy", fields: [submittedById], references: [id], onDelete: Restrict)
   createdBy      User                   @relation("QuotationVersionCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
   lines          QuotationVersionLine[]
+  awardLines     RfqAwardLine[]         @relation("AwardLineVersion")
 
   @@unique([quotationId, versionNo])
   @@map("quotation_version")
@@ -1421,6 +1447,8 @@ model QuotationVersionLine {
   unitPrice       Decimal @map("unit_price") @db.Decimal(18, 4)
   discountPercent Decimal @default(0) @map("discount_percent") @db.Decimal(5, 2)
   taxRate         Decimal @map("tax_rate") @db.Decimal(5, 2)
+  /// Copied from the version so the row carries the basis its own figures were computed on.
+  taxTreatment    TaxTreatment @default(EXCLUSIVE) @map("tax_treatment")
   gross           Decimal @db.Decimal(18, 2)
   discount        Decimal @db.Decimal(18, 2)
   taxable         Decimal @db.Decimal(18, 2)
@@ -1450,4 +1478,342 @@ model QuotationReview {
 
   @@index([quotationId, occurredAt])
   @@map("quotation_review")
+}
+
+// ──────────────── Evaluation & award module (Phase 04) ────────────────
+//
+// Owned by the sourcing module. The comparison engine is deterministic: every
+// score stores the figures it was computed from and the formula version that
+// produced it, so an award decided today can still be explained after the
+// criteria change. Awards are authorised through the shared approval engine
+// (entity type `rfq_award`) — this module never decides an approval itself.
+
+enum CriteriaSetStatus {
+  DRAFT
+  ACTIVE
+  RETIRED
+}
+
+enum CriterionSource {
+  AUTO_PRICE
+  AUTO_DELIVERY
+  AUTO_PAYMENT_TERMS
+  MANUAL
+}
+
+enum CriterionDirection {
+  HIGHER_BETTER
+  LOWER_BETTER
+}
+
+enum EvaluationStatus {
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum AwardStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  AWARDED
+  RETURNED
+  REJECTED
+  CANCELLED
+}
+
+enum AwardType {
+  FULL
+  PARTIAL
+}
+
+enum TaxTreatment {
+  EXCLUSIVE
+  INCLUSIVE
+}
+
+/// Exchange rates approved for converting quotations into one basis currency.
+/// Append-only: a rate is evidence, so a correction is a new row, never an edit.
+model ExchangeRate {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId     String   @map("company_id") @db.Uuid
+  baseCurrency  String   @map("base_currency") @db.Char(3)
+  quoteCurrency String   @map("quote_currency") @db.Char(3)
+  /// Units of baseCurrency per one quoteCurrency.
+  rate          Decimal  @db.Decimal(18, 8)
+  source        String   @db.VarChar(80)
+  rateTimestamp DateTime @map("rate_timestamp") @db.Timestamptz(6)
+  note          String?  @db.VarChar(500)
+  approvedAt    DateTime @default(now()) @map("approved_at") @db.Timestamptz(6)
+  approvedById  String   @map("approved_by") @db.Uuid
+
+  company    Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  approvedBy User    @relation("ExchangeRateApprovedBy", fields: [approvedById], references: [id], onDelete: Restrict)
+  usedBy     QuotationEvaluation[]
+
+  @@unique([companyId, baseCurrency, quoteCurrency, rateTimestamp])
+  @@index([companyId, baseCurrency, quoteCurrency])
+  @@map("exchange_rate")
+}
+
+/// A named set of weighted criteria. Weights total exactly 100 % (enforced on
+/// publish); an ACTIVE set is frozen, so changing one publishes a new version.
+model EvaluationCriteriaSet {
+  id             String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId      String            @map("company_id") @db.Uuid
+  name           String            @db.VarChar(120)
+  description    String?           @db.VarChar(1000)
+  status         CriteriaSetStatus @default(DRAFT)
+  setVersion     Int               @default(1) @map("set_version")
+  isDefault      Boolean           @default(false) @map("is_default")
+  /// Formula that interprets these weights, e.g. weighted-sum-v1.
+  formulaVersion String            @map("formula_version") @db.VarChar(40)
+  publishedAt    DateTime?         @map("published_at") @db.Timestamptz(6)
+  retiredAt      DateTime?         @map("retired_at") @db.Timestamptz(6)
+  version        Int               @default(0)
+  createdAt      DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
+  createdById    String            @map("created_by") @db.Uuid
+  updatedById    String?           @map("updated_by") @db.Uuid
+
+  company     Company               @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  createdBy   User                  @relation("CriteriaSetCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  criteria    EvaluationCriterion[]
+  evaluations RfqEvaluation[]
+
+  @@unique([companyId, name, setVersion])
+  @@unique([companyId, id])
+  @@index([companyId, status])
+  @@map("evaluation_criteria_set")
+}
+
+model EvaluationCriterion {
+  id            String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  setId         String             @map("set_id") @db.Uuid
+  key           String             @db.VarChar(40)
+  label         String             @db.VarChar(120)
+  weightPercent Decimal            @map("weight_percent") @db.Decimal(5, 2)
+  source        CriterionSource
+  direction     CriterionDirection
+  guidance      String?            @db.VarChar(500)
+  sortOrder     Int                @map("sort_order") @db.SmallInt
+
+  set EvaluationCriteriaSet @relation(fields: [setId], references: [id], onDelete: Cascade)
+
+  @@unique([setId, key])
+  @@map("evaluation_criterion")
+}
+
+/// One evaluation round per RFQ. Holds the basis currency and the frozen
+/// criteria set, so re-running the engine reproduces the same scores.
+model RfqEvaluation {
+  id             String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId      String           @map("company_id") @db.Uuid
+  rfqId          String           @map("rfq_id") @db.Uuid
+  criteriaSetId  String           @map("criteria_set_id") @db.Uuid
+  formulaVersion String           @map("formula_version") @db.VarChar(40)
+  basisCurrency  String           @map("basis_currency") @db.Char(3)
+  status         EvaluationStatus @default(IN_PROGRESS)
+  /// Why the round concluded as it did; shown with the recommendation.
+  summaryNote    String?          @map("summary_note") @db.VarChar(4000)
+  startedAt      DateTime         @default(now()) @map("started_at") @db.Timestamptz(6)
+  startedById    String           @map("started_by") @db.Uuid
+  completedAt    DateTime?        @map("completed_at") @db.Timestamptz(6)
+  completedById  String?          @map("completed_by") @db.Uuid
+  version        Int              @default(0)
+
+  company      Company                         @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  rfq          Rfq                             @relation(fields: [companyId, rfqId], references: [companyId, id], onDelete: Restrict)
+  criteriaSet  EvaluationCriteriaSet           @relation(fields: [criteriaSetId], references: [id], onDelete: Restrict)
+  startedBy    User                            @relation("EvaluationStartedBy", fields: [startedById], references: [id], onDelete: Restrict)
+  quotations   QuotationEvaluation[]
+  declarations ConflictOfInterestDeclaration[]
+  notes        EvaluationNote[]
+  awards       RfqAward[]
+
+  @@unique([rfqId])
+  @@unique([companyId, rfqId])
+  @@unique([companyId, id])
+  @@map("rfq_evaluation")
+}
+
+/// One row per quotation in the round, carrying the evaluated version number
+/// so a later revision never silently changes a recorded score.
+model QuotationEvaluation {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  evaluationId    String    @map("evaluation_id") @db.Uuid
+  quotationId     String    @map("quotation_id") @db.Uuid
+  versionNo       Int       @map("version_no")
+  /// Grand total converted into the evaluation's basis currency.
+  comparableTotal Decimal?  @map("comparable_total") @db.Decimal(18, 2)
+  exchangeRateId  String?   @map("exchange_rate_id") @db.Uuid
+  totalScore      Decimal?  @map("total_score") @db.Decimal(9, 4)
+  /// Full working of the last scoring run: inputs, best values, per-criterion scores.
+  scoreBreakdown  Json?     @map("score_breakdown")
+  /// Comparability blockers found at scoring time (see COMPARABILITY_BLOCKERS).
+  blockers        String[]  @default([])
+  excluded        Boolean   @default(false)
+  exclusionReason String?   @map("exclusion_reason") @db.VarChar(1000)
+  scoredAt        DateTime? @map("scored_at") @db.Timestamptz(6)
+  scoredById      String?   @map("scored_by") @db.Uuid
+
+  evaluation   RfqEvaluation @relation(fields: [evaluationId], references: [id], onDelete: Cascade)
+  quotation    Quotation     @relation(fields: [quotationId], references: [id], onDelete: Restrict)
+  exchangeRate ExchangeRate? @relation(fields: [exchangeRateId], references: [id], onDelete: Restrict)
+
+  scores EvaluationScore[]
+
+  @@unique([evaluationId, quotationId])
+  @@map("quotation_evaluation")
+}
+
+/// One score per criterion per quotation. Manual scores record their reviewer;
+/// automatic ones record the quotation figure they were derived from.
+model EvaluationScore {
+  id                    String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  quotationEvaluationId String          @map("quotation_evaluation_id") @db.Uuid
+  criterionKey          String          @map("criterion_key") @db.VarChar(40)
+  source                CriterionSource
+  weightPercent         Decimal         @map("weight_percent") @db.Decimal(5, 2)
+  /// The figure scored, exactly as read from the quotation or entered by the reviewer.
+  rawValue              String?         @map("raw_value") @db.VarChar(40)
+  normalizedScore       Decimal?        @map("normalized_score") @db.Decimal(9, 4)
+  weightedScore         Decimal?        @map("weighted_score") @db.Decimal(9, 4)
+  missing               Boolean         @default(false)
+  note                  String?         @db.VarChar(1000)
+  scoredById            String?         @map("scored_by") @db.Uuid
+  scoredAt              DateTime        @default(now()) @map("scored_at") @db.Timestamptz(6)
+
+  quotationEvaluation QuotationEvaluation @relation(fields: [quotationEvaluationId], references: [id], onDelete: Cascade)
+  scoredBy            User?               @relation("EvaluationScoredBy", fields: [scoredById], references: [id], onDelete: Restrict)
+
+  @@unique([quotationEvaluationId, criterionKey])
+  @@map("evaluation_score")
+}
+
+/// Conflict-of-interest declaration by a reviewer, required before they may
+/// score or recommend. Append-only: a change of circumstances is a new round.
+model ConflictOfInterestDeclaration {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId    String   @map("company_id") @db.Uuid
+  evaluationId String   @map("evaluation_id") @db.Uuid
+  userId       String   @map("user_id") @db.Uuid
+  hasConflict  Boolean  @map("has_conflict")
+  details      String?  @db.VarChar(2000)
+  declaredAt   DateTime @default(now()) @map("declared_at") @db.Timestamptz(6)
+
+  company    Company       @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  evaluation RfqEvaluation @relation(fields: [evaluationId], references: [id], onDelete: Cascade)
+  user       User          @relation("ConflictDeclarationUser", fields: [userId], references: [id], onDelete: Restrict)
+
+  @@unique([evaluationId, userId])
+  @@map("conflict_of_interest_declaration")
+}
+
+/// Append-only reviewer commentary on the round itself (per-quotation notes
+/// stay in quotation_review).
+model EvaluationNote {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  evaluationId String   @map("evaluation_id") @db.Uuid
+  note         String   @db.VarChar(2000)
+  authorId     String   @map("author_id") @db.Uuid
+  occurredAt   DateTime @default(now()) @map("occurred_at") @db.Timestamptz(6)
+
+  evaluation RfqEvaluation @relation(fields: [evaluationId], references: [id], onDelete: Cascade)
+  author     User          @relation("EvaluationNoteAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+
+  @@index([evaluationId, occurredAt])
+  @@map("evaluation_note")
+}
+
+/// An award recommendation and, once approved, the award itself. The commercial
+/// snapshot is written when the award is issued and is never recomputed.
+model RfqAward {
+  id                 String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId          String      @map("company_id") @db.Uuid
+  awardNo            String      @map("award_no") @db.VarChar(64)
+  rfqId              String      @map("rfq_id") @db.Uuid
+  evaluationId       String      @map("evaluation_id") @db.Uuid
+  status             AwardStatus @default(DRAFT)
+  statusReason       String?     @map("status_reason") @db.VarChar(2000)
+  awardType          AwardType   @map("award_type")
+  currency           String      @db.Char(3)
+  totalAwardedValue  Decimal     @default(0) @map("total_awarded_value") @db.Decimal(18, 2)
+  rationale          String      @db.VarChar(4000)
+  /// Set only when a quotation past its validity was awarded under exception.
+  expiredException   String?     @map("expired_exception") @db.VarChar(1000)
+  approvalInstanceId String?     @map("approval_instance_id") @db.Uuid
+  recommendedAt      DateTime    @default(now()) @map("recommended_at") @db.Timestamptz(6)
+  recommendedById    String      @map("recommended_by") @db.Uuid
+  approvedAt         DateTime?   @map("approved_at") @db.Timestamptz(6)
+  awardedAt          DateTime?   @map("awarded_at") @db.Timestamptz(6)
+  /// Frozen commercial terms of every awarded line, written once at award.
+  snapshot           Json?
+  awardDocumentId    String?     @map("award_document_id") @db.Uuid
+  version            Int         @default(0)
+  createdAt          DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime    @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  company          Company           @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  rfq              Rfq               @relation(fields: [companyId, rfqId], references: [companyId, id], onDelete: Restrict)
+  evaluation       RfqEvaluation     @relation(fields: [evaluationId], references: [id], onDelete: Restrict)
+  recommendedBy    User              @relation("AwardRecommendedBy", fields: [recommendedById], references: [id], onDelete: Restrict)
+  approvalInstance ApprovalInstance? @relation(fields: [approvalInstanceId], references: [id], onDelete: Restrict)
+  awardDocument    Document?         @relation("AwardDocument", fields: [awardDocumentId], references: [id], onDelete: Restrict)
+  lines            RfqAwardLine[]
+  events           RfqAwardEvent[]
+
+  @@unique([companyId, awardNo])
+  @@unique([companyId, id])
+  @@index([companyId, status])
+  @@index([rfqId])
+  @@map("rfq_award")
+}
+
+/// One awarded RFQ line. Different lines may carry different vendors when the
+/// RFQ permits a partial award; the commercial terms are copied from the
+/// awarded quotation version so a later revision cannot alter them.
+model RfqAwardLine {
+  id                 String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  awardId            String       @map("award_id") @db.Uuid
+  rfqLineId          String       @map("rfq_line_id") @db.Uuid
+  quotationId        String       @map("quotation_id") @db.Uuid
+  quotationVersionId String       @map("quotation_version_id") @db.Uuid
+  vendorId           String       @map("vendor_id") @db.Uuid
+  currency           String       @db.Char(3)
+  taxTreatment       TaxTreatment @map("tax_treatment")
+  quantity           Decimal      @db.Decimal(18, 4)
+  unitPrice          Decimal      @map("unit_price") @db.Decimal(18, 4)
+  discountPercent    Decimal      @map("discount_percent") @db.Decimal(5, 2)
+  taxRate            Decimal      @map("tax_rate") @db.Decimal(5, 2)
+  lineTotal          Decimal      @map("line_total") @db.Decimal(18, 2)
+  /// lineTotal converted into the award currency, when they differ.
+  comparableTotal    Decimal      @map("comparable_total") @db.Decimal(18, 2)
+
+  award            RfqAward         @relation(fields: [awardId], references: [id], onDelete: Cascade)
+  rfqLine          RfqLine          @relation(fields: [rfqLineId], references: [id], onDelete: Restrict)
+  quotation        Quotation        @relation("AwardLineQuotation", fields: [quotationId], references: [id], onDelete: Restrict)
+  quotationVersion QuotationVersion @relation("AwardLineVersion", fields: [quotationVersionId], references: [id], onDelete: Restrict)
+  vendor           Vendor           @relation("AwardLineVendor", fields: [vendorId], references: [id], onDelete: Restrict)
+
+  @@unique([awardId, rfqLineId])
+  @@index([quotationId])
+  @@map("rfq_award_line")
+}
+
+/// Append-only award trail: who recommended, who decided, when and why.
+model RfqAwardEvent {
+  id         String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  awardId    String       @map("award_id") @db.Uuid
+  fromStatus AwardStatus? @map("from_status")
+  toStatus   AwardStatus  @map("to_status")
+  reason     String?      @db.VarChar(2000)
+  actorId    String?      @map("actor_id") @db.Uuid
+  occurredAt DateTime     @default(now()) @map("occurred_at") @db.Timestamptz(6)
+
+  award RfqAward @relation(fields: [awardId], references: [id], onDelete: Cascade)
+  actor User?    @relation("AwardEventActor", fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@index([awardId, occurredAt])
+  @@map("rfq_award_event")
 }

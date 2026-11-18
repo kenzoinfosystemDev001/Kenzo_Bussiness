@@ -113,6 +113,8 @@ export const SYSTEM_ROLES: Record<SystemRoleKey, SystemRoleDefinition> = {
       'quotation.read': C,
       'quotation.manage': C,
       'quotation.award': C,
+      'evaluation.configure': C,
+      'exchange_rate.manage': C,
       'po.read': C,
       'po.create': C,
       'po.approve': C,

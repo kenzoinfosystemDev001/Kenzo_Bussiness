@@ -53,7 +53,7 @@ export class QuotationsService {
 
     const totals = computeDocumentTotals(
       input.lines.map((l) => ({ quantity: l.quantity, unitPrice: l.unitPrice, discountPercent: l.discountPercent, taxRate: l.taxRate })),
-      { freight: input.freight, otherCharges: input.otherCharges },
+      { freight: input.freight, otherCharges: input.otherCharges, taxTreatment: input.taxTreatment },
     );
 
     const versionId = randomUUID();
@@ -67,6 +67,7 @@ export class QuotationsService {
         quotationDate: new Date(`${input.quotationDate}T00:00:00Z`),
         validUntil: new Date(`${input.validUntil}T00:00:00Z`),
         currency: input.currency,
+        taxTreatment: input.taxTreatment,
         deliveryLeadDays: input.deliveryLeadDays ?? null,
         warranty: input.warranty ?? null,
         paymentTermsDays: input.paymentTermsDays ?? null,
@@ -96,6 +97,7 @@ export class QuotationsService {
         unitPrice: l.unitPrice,
         discountPercent: l.discountPercent,
         taxRate: l.taxRate,
+        taxTreatment: input.taxTreatment,
         gross: totals.lines[i]!.gross,
         discount: totals.lines[i]!.discount,
         taxable: totals.lines[i]!.taxable,
@@ -135,17 +137,32 @@ export class QuotationsService {
       const invitation = await tx.rfqInvitation.findFirst({ where: { rfqId, vendorId: input.vendorId, status: { not: 'WITHDRAWN' } } });
       if (!invitation) throw AppError.validation([{ path: 'vendorId', message: 'That vendor was not invited to this RFQ' }]);
       const existing = await tx.quotation.findFirst({ where: { rfqId, vendorId: input.vendorId } });
-      if (existing) throw new AppError('CONFLICT', `A quotation already exists for this vendor (${existing.quotationNo}). Record a revision instead.`, { details: { quotationId: existing.id } });
+      if (existing)
+        throw new AppError('CONFLICT', `A quotation already exists for this vendor (${existing.quotationNo}). Record a revision instead.`, {
+          details: { quotationId: existing.id },
+        });
 
       const late = new Date() > rfq.responseDeadline;
       if (late && input.submit && !input.lateAcceptanceReason) {
         throw AppError.validation([{ path: 'lateAcceptanceReason', message: 'The response deadline has passed — record why this late quotation is accepted' }]);
       }
+      const id = randomUUID();
+
+      // A vendor may answer in its own currency — overseas suppliers routinely
+      // do. The quotation is stored exactly as quoted and the evaluation engine
+      // converts it only against an approved exchange rate, refusing to compare
+      // it until one exists (Phase 04). Recording it is what makes that refusal
+      // visible; rejecting it outright would only push the conversion into a
+      // spreadsheet nobody can audit.
       if (input.currency !== rfq.currency) {
-        throw AppError.validation([{ path: 'currency', message: `This RFQ asks for quotes in ${rfq.currency}` }]);
+        await this.audit.record(tx, {
+          action: 'quotation.foreign_currency',
+          entityType: 'quotation',
+          entityId: id,
+          after: { quoted: input.currency, requested: rfq.currency, vendorId: input.vendorId },
+        });
       }
 
-      const id = randomUUID();
       const quotationNo = await this.numbering.next(tx, { companyId: auth.companyId, documentType: 'quotation', entityId: id, issuedById: auth.userId });
       const quotation = await tx.quotation.create({
         data: {
@@ -227,7 +244,13 @@ export class QuotationsService {
         await this.rfqs.refreshResponseStatus(tx, quotation.rfqId, auth.userId);
       }
       await tx.quotationReview.create({
-        data: { quotationId, versionNo: draft.versionNo, action: first ? 'SUBMITTED' : 'REVISION_SUBMITTED', note: changeSummary ?? null, reviewerId: auth.userId },
+        data: {
+          quotationId,
+          versionNo: draft.versionNo,
+          action: first ? 'SUBMITTED' : 'REVISION_SUBMITTED',
+          note: changeSummary ?? null,
+          reviewerId: auth.userId,
+        },
       });
       await this.audit.record(tx, {
         action: first ? 'quotation.submitted' : 'quotation.revised',
@@ -248,12 +271,18 @@ export class QuotationsService {
       await this.common.lockQuotation(tx, quotationId);
       const quotation = await this.load(tx, auth, quotationId);
       await this.assertRfqAcceptsQuotations(tx, auth, quotation.rfqId);
-      if (!REVISABLE.includes(quotation.status)) throw AppError.invalidState(`A ${quotation.status.toLowerCase().replace(/_/g, ' ')} quotation cannot be revised`);
+      if (!REVISABLE.includes(quotation.status))
+        throw AppError.invalidState(`A ${quotation.status.toLowerCase().replace(/_/g, ' ')} quotation cannot be revised`);
       const openDraft = await tx.quotationVersion.findFirst({ where: { quotationId, submittedAt: null } });
       if (openDraft) throw AppError.invalidState(`Version ${openDraft.versionNo} is still a draft — submit or discard it first`);
       const latest = await tx.quotationVersion.findFirstOrThrow({ where: { quotationId }, orderBy: { versionNo: 'desc' } });
       await this.writeVersion(tx, auth, quotation, latest.versionNo + 1, input, null);
-      await this.audit.record(tx, { action: 'quotation.revision_started', entityType: 'quotation', entityId: quotationId, after: { versionNo: latest.versionNo + 1 } });
+      await this.audit.record(tx, {
+        action: 'quotation.revision_started',
+        entityType: 'quotation',
+        entityId: quotationId,
+        after: { versionNo: latest.versionNo + 1 },
+      });
     });
     return this.detail(auth, quotationId);
   }
@@ -267,7 +296,12 @@ export class QuotationsService {
       if (draft.versionNo === 1) throw AppError.invalidState('Cancel the quotation instead of discarding its only version');
       await tx.quotationVersionLine.deleteMany({ where: { versionId: draft.id } });
       await tx.quotationVersion.delete({ where: { id: draft.id } });
-      await this.audit.record(tx, { action: 'quotation.draft_discarded', entityType: 'quotation', entityId: quotationId, before: { versionNo: draft.versionNo } });
+      await this.audit.record(tx, {
+        action: 'quotation.draft_discarded',
+        entityType: 'quotation',
+        entityId: quotationId,
+        before: { versionNo: draft.versionNo },
+      });
     });
     return this.detail(auth, quotationId);
   }
@@ -279,11 +313,19 @@ export class QuotationsService {
       const quotation = await this.load(tx, auth, quotationId);
       const next: QuotationStatus | null = action === 'REQUEST_CLARIFICATION' ? 'CLARIFICATION_REQUESTED' : action === 'REJECT' ? 'REJECTED' : null;
       if (next) {
-        if (['ACCEPTED', 'REJECTED', 'EXPIRED'].includes(quotation.status)) throw AppError.invalidState(`This quotation is already ${quotation.status.toLowerCase()}`);
+        if (['ACCEPTED', 'REJECTED', 'EXPIRED'].includes(quotation.status))
+          throw AppError.invalidState(`This quotation is already ${quotation.status.toLowerCase()}`);
         await tx.quotation.update({ where: { id: quotationId }, data: { status: next, statusReason: note, version: { increment: 1 } } });
       }
       await tx.quotationReview.create({ data: { quotationId, versionNo: quotation.currentVersionNo, action, note, reviewerId: auth.userId } });
-      await this.audit.record(tx, { action: `quotation.${action.toLowerCase()}`, entityType: 'quotation', entityId: quotationId, before: { status: quotation.status }, after: { status: next ?? quotation.status }, reason: note });
+      await this.audit.record(tx, {
+        action: `quotation.${action.toLowerCase()}`,
+        entityType: 'quotation',
+        entityId: quotationId,
+        before: { status: quotation.status },
+        after: { status: next ?? quotation.status },
+        reason: note,
+      });
     });
     return this.detail(auth, quotationId);
   }
@@ -300,10 +342,28 @@ export class QuotationsService {
       const current = q.versions[0];
       if (!current || current.validUntil >= today) continue;
       await this.prisma.tx(async (tx) => {
-        const claimed = await tx.quotation.updateMany({ where: { id: q.id, status: q.status }, data: { status: 'EXPIRED', statusReason: `Validity lapsed on ${current.validUntil.toISOString().slice(0, 10)}`, version: { increment: 1 } } });
+        const claimed = await tx.quotation.updateMany({
+          where: { id: q.id, status: q.status },
+          data: { status: 'EXPIRED', statusReason: `Validity lapsed on ${current.validUntil.toISOString().slice(0, 10)}`, version: { increment: 1 } },
+        });
         if (claimed.count !== 1) return;
-        await tx.quotationReview.create({ data: { quotationId: q.id, versionNo: current.versionNo, action: 'EXPIRED', note: `Valid until ${current.validUntil.toISOString().slice(0, 10)}`, reviewerId: q.createdById } });
-        await this.audit.record(tx, { action: 'quotation.expired', entityType: 'quotation', entityId: q.id, companyId, actorId: null, after: { validUntil: current.validUntil } });
+        await tx.quotationReview.create({
+          data: {
+            quotationId: q.id,
+            versionNo: current.versionNo,
+            action: 'EXPIRED',
+            note: `Valid until ${current.validUntil.toISOString().slice(0, 10)}`,
+            reviewerId: q.createdById,
+          },
+        });
+        await this.audit.record(tx, {
+          action: 'quotation.expired',
+          entityType: 'quotation',
+          entityId: q.id,
+          companyId,
+          actorId: null,
+          after: { validUntil: current.validUntil },
+        });
         expired++;
       });
     }
@@ -382,81 +442,17 @@ export class QuotationsService {
     };
   }
 
-  /**
-   * Side-by-side preparation view for the comparison engine (award logic lands
-   * with the evaluation module). Figures come straight from stored decimals;
-   * items a vendor did not quote are reported as missing rather than zero.
-   */
-  async comparison(auth: AuthContext, rfqId: string) {
-    const rfq = await this.common.loadRfq(this.prisma, auth, rfqId);
-    const [lines, quotations] = await Promise.all([
-      this.prisma.rfqLine.findMany({ where: { rfqId }, orderBy: { lineNo: 'asc' } }),
-      this.prisma.quotation.findMany({
-        where: { rfqId, status: { notIn: ['DRAFT'] } },
-        include: {
-          vendor: { select: { id: true, vendorCode: true, legalName: true, status: true } },
-          versions: { orderBy: { versionNo: 'desc' }, take: 1, include: { lines: true } },
-        },
-      }),
-    ]);
-    const columns = quotations
-      .filter((q) => q.versions.length > 0)
-      .map((q) => {
-        const v = q.versions[0]!;
-        const byLine = new Map(v.lines.map((l) => [l.rfqLineId, l]));
-        const quotedLines = lines.map((l) => {
-          const ql = byLine.get(l.id);
-          return ql
-            ? { rfqLineId: l.id, quoted: true, unitPrice: dec(ql.unitPrice, 4), quantity: dec(ql.quantity, 4), total: dec(ql.total), discountPercent: dec(ql.discountPercent), taxRate: dec(ql.taxRate) }
-            : { rfqLineId: l.id, quoted: false, unitPrice: null, quantity: null, total: null, discountPercent: null, taxRate: null };
-        });
-        return {
-          quotationId: q.id,
-          quotationNo: q.quotationNo,
-          status: q.status,
-          versionNo: v.versionNo,
-          vendor: q.vendor,
-          currency: v.currency,
-          validUntil: v.validUntil,
-          isExpired: v.validUntil < todayUtc(),
-          deliveryLeadDays: v.deliveryLeadDays,
-          warranty: v.warranty,
-          paymentTermsDays: v.paymentTermsDays,
-          paymentTerms: v.paymentTerms,
-          subtotal: dec(v.subtotal),
-          discountTotal: dec(v.discountTotal),
-          taxTotal: dec(v.taxTotal),
-          freight: dec(v.freight),
-          otherCharges: dec(v.otherCharges),
-          grandTotal: dec(v.grandTotal),
-          linesQuoted: v.lines.length,
-          linesMissing: lines.length - v.lines.length,
-          lines: quotedLines,
-        };
-      });
-    const currencies = [...new Set(columns.map((c) => c.currency))];
-    return {
-      rfq: { id: rfq.id, rfqNo: rfq.rfqNo, title: rfq.title, status: rfq.status, currency: rfq.currency, responseDeadline: rfq.responseDeadline },
-      lines: lines.map((l) => ({ ...l, quantity: dec(l.quantity, 4) })),
-      columns,
-      /** Facts the evaluator must see before comparing; never hidden behind a single score. */
-      caveats: {
-        comparable: currencies.length <= 1,
-        currencies,
-        incompleteResponses: columns.filter((c) => c.linesMissing > 0).map((c) => ({ quotationNo: c.quotationNo, missing: c.linesMissing })),
-        expired: columns.filter((c) => c.isExpired).map((c) => c.quotationNo),
-        awaitingResponses: await this.prisma.rfqInvitation.count({ where: { rfqId, status: { in: ['SENT', 'DELIVERED'] } } }),
-      },
-    };
-  }
-
   async listForRfq(auth: AuthContext, rfqId: string) {
     await this.common.loadRfq(this.prisma, auth, rfqId);
     const items = await this.prisma.quotation.findMany({
       where: { rfqId },
       include: {
         vendor: { select: { id: true, vendorCode: true, legalName: true } },
-        versions: { orderBy: { versionNo: 'desc' }, take: 1, select: { versionNo: true, grandTotal: true, currency: true, validUntil: true, submittedAt: true, deliveryLeadDays: true } },
+        versions: {
+          orderBy: { versionNo: 'desc' },
+          take: 1,
+          select: { versionNo: true, grandTotal: true, currency: true, validUntil: true, submittedAt: true, deliveryLeadDays: true },
+        },
       },
       orderBy: { createdAt: 'asc' },
     });

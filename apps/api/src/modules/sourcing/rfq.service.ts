@@ -75,7 +75,6 @@ export class RfqService implements OnModuleInit {
         const chosen = input.requisitionLineIds?.length ? reqLines.filter((l) => input.requisitionLineIds!.includes(l.id)) : reqLines;
         if (chosen.length === 0) throw AppError.validation([{ path: 'requisitionLineIds', message: 'Select at least one requisition line' }]);
         lines = chosen.map((l, i) => ({
-          companyId: auth.companyId,
           lineNo: i + 1,
           requisitionLineId: l.id,
           itemType: l.itemType,
@@ -89,7 +88,6 @@ export class RfqService implements OnModuleInit {
       } else {
         this.authz.assertCan(auth, 'rfq.standalone');
         lines = (input.lines ?? []).map((l, i) => ({
-          companyId: auth.companyId,
           lineNo: i + 1,
           requisitionLineId: null,
           itemType: l.itemType,
@@ -116,6 +114,7 @@ export class RfqService implements OnModuleInit {
           termsAndConditions: input.termsAndConditions ?? null,
           currency: input.currency,
           isStandalone: !input.requisitionId,
+          allowPartialAward: input.allowPartialAward,
           standaloneReason: input.requisitionId ? null : (input.standaloneReason ?? null),
           createdById: auth.userId,
           updatedById: auth.userId,
@@ -183,7 +182,10 @@ export class RfqService implements OnModuleInit {
   }
 
   private async assertSendable(tx: Tx, rfq: Rfq) {
-    const [lines, invitations] = await Promise.all([tx.rfqLine.count({ where: { rfqId: rfq.id } }), tx.rfqInvitation.count({ where: { rfqId: rfq.id, status: { not: 'WITHDRAWN' } } })]);
+    const [lines, invitations] = await Promise.all([
+      tx.rfqLine.count({ where: { rfqId: rfq.id } }),
+      tx.rfqInvitation.count({ where: { rfqId: rfq.id, status: { not: 'WITHDRAWN' } } }),
+    ]);
     const problems: Array<{ path: string; message: string }> = [];
     if (lines === 0) problems.push({ path: 'lines', message: 'Add at least one item' });
     if (invitations === 0) problems.push({ path: 'vendorIds', message: 'Invite at least one vendor' });
@@ -201,9 +203,17 @@ export class RfqService implements OnModuleInit {
     if (!email) throw AppError.validation([{ path: 'vendorIds', message: `${vendor.legalName} has no contact email — add one before inviting` }]);
 
     const invitation = existing
-      ? await tx.rfqInvitation.update({ where: { id: existing.id }, data: { status: 'PENDING', recipientEmail: email, invitedById: auth.userId, invitedAt: new Date(), declineReason: null } })
+      ? await tx.rfqInvitation.update({
+          where: { id: existing.id },
+          data: { status: 'PENDING', recipientEmail: email, invitedById: auth.userId, invitedAt: new Date(), declineReason: null },
+        })
       : await tx.rfqInvitation.create({ data: { companyId: auth.companyId, rfqId, vendorId, recipientEmail: email, invitedById: auth.userId } });
-    await this.audit.record(tx, { action: 'rfq.vendor_invited', entityType: 'rfq', entityId: rfqId, after: { vendorId, vendorCode: vendor.vendorCode, email } });
+    await this.audit.record(tx, {
+      action: 'rfq.vendor_invited',
+      entityType: 'rfq',
+      entityId: rfqId,
+      after: { vendorId, vendorCode: vendor.vendorCode, email },
+    });
     if (sendNow) await this.dispatchInvitation(tx, auth, rfqId, invitation.id);
     return invitation;
   }
@@ -212,7 +222,8 @@ export class RfqService implements OnModuleInit {
     await this.prisma.tx(async (tx) => {
       await this.common.lockRfq(tx, rfqId);
       const rfq = await this.common.loadRfq(tx, auth, rfqId);
-      if (!['DRAFT', 'APPROVED', ...OPEN_FOR_RESPONSES].includes(rfq.status)) throw AppError.invalidState(`Cannot invite vendors to a ${RFQ_STATUS_LABELS[rfq.status].toLowerCase()} RFQ`);
+      if (!['DRAFT', 'APPROVED', ...OPEN_FOR_RESPONSES].includes(rfq.status))
+        throw AppError.invalidState(`Cannot invite vendors to a ${RFQ_STATUS_LABELS[rfq.status].toLowerCase()} RFQ`);
       for (const vendorId of [...new Set(vendorIds)]) await this.inviteOne(tx, auth, rfqId, vendorId, rfq.status !== 'DRAFT');
     });
     return this.detail(auth, rfqId);
@@ -221,12 +232,24 @@ export class RfqService implements OnModuleInit {
   async withdrawInvitation(auth: AuthContext, rfqId: string, invitationId: string, reason: string) {
     await this.prisma.tx(async (tx) => {
       await this.common.lockRfq(tx, rfqId);
-      const inv = await tx.rfqInvitation.findFirst({ where: { id: invitationId, rfqId, companyId: auth.companyId }, include: { vendor: { select: { legalName: true } } } });
+      const inv = await tx.rfqInvitation.findFirst({
+        where: { id: invitationId, rfqId, companyId: auth.companyId },
+        include: { vendor: { select: { legalName: true } } },
+      });
       if (!inv) throw AppError.notFound('Invitation');
       if (inv.status === 'RESPONDED') throw AppError.invalidState('This vendor has already responded');
       await tx.rfqInvitation.update({ where: { id: inv.id }, data: { status: 'WITHDRAWN', declineReason: reason } });
       await tx.rfqCommunication.create({
-        data: { companyId: auth.companyId, rfqId, invitationId: inv.id, kind: 'INVITATION_WITHDRAWN', direction: 'INTERNAL', subject: `Invitation withdrawn: ${inv.vendor.legalName}`, body: reason, actorId: auth.userId },
+        data: {
+          companyId: auth.companyId,
+          rfqId,
+          invitationId: inv.id,
+          kind: 'INVITATION_WITHDRAWN',
+          direction: 'INTERNAL',
+          subject: `Invitation withdrawn: ${inv.vendor.legalName}`,
+          body: reason,
+          actorId: auth.userId,
+        },
       });
       await this.audit.record(tx, { action: 'rfq.invitation_withdrawn', entityType: 'rfq', entityId: rfqId, before: { vendorId: inv.vendorId }, reason });
     });
@@ -236,12 +259,24 @@ export class RfqService implements OnModuleInit {
   /** Records a response received outside the system (email, portal, post). */
   async recordDecline(auth: AuthContext, rfqId: string, invitationId: string, reason: string) {
     await this.prisma.tx(async (tx) => {
-      const inv = await tx.rfqInvitation.findFirst({ where: { id: invitationId, rfqId, companyId: auth.companyId }, include: { vendor: { select: { legalName: true } } } });
+      const inv = await tx.rfqInvitation.findFirst({
+        where: { id: invitationId, rfqId, companyId: auth.companyId },
+        include: { vendor: { select: { legalName: true } } },
+      });
       if (!inv) throw AppError.notFound('Invitation');
       if (inv.status === 'RESPONDED') throw AppError.invalidState('This vendor has already submitted a quotation');
       await tx.rfqInvitation.update({ where: { id: inv.id }, data: { status: 'DECLINED', declineReason: reason, respondedAt: new Date() } });
       await tx.rfqCommunication.create({
-        data: { companyId: auth.companyId, rfqId, invitationId: inv.id, kind: 'VENDOR_DECLINED', direction: 'INBOUND', subject: `${inv.vendor.legalName} declined to quote`, body: reason, actorId: auth.userId },
+        data: {
+          companyId: auth.companyId,
+          rfqId,
+          invitationId: inv.id,
+          kind: 'VENDOR_DECLINED',
+          direction: 'INBOUND',
+          subject: `${inv.vendor.legalName} declined to quote`,
+          body: reason,
+          actorId: auth.userId,
+        },
       });
       await this.audit.record(tx, { action: 'rfq.vendor_declined', entityType: 'rfq', entityId: rfqId, after: { vendorId: inv.vendorId }, reason });
       await this.refreshResponseStatus(tx, rfqId, auth.userId);
@@ -272,10 +307,17 @@ export class RfqService implements OnModuleInit {
       blocks.push({ text: `    Quantity: ${l.quantity.toFixed(4).replace(/\.?0+$/, '')} ${l.uom}   Type: ${l.itemType}`, style: 'mono' });
       if (l.specification) blocks.push({ text: `    Specification: ${l.specification}`, style: 'small' });
     }
-    if (rfq.deliveryRequirements) blocks.push({ text: 'Delivery requirements', style: 'heading', spaceBefore: 10 }, { text: rfq.deliveryRequirements, style: 'body' });
-    if (rfq.submissionInstructions) blocks.push({ text: 'How to respond', style: 'heading', spaceBefore: 10 }, { text: rfq.submissionInstructions, style: 'body' });
-    if (rfq.termsAndConditions) blocks.push({ text: 'Terms and conditions', style: 'heading', spaceBefore: 10 }, { text: rfq.termsAndConditions, style: 'small' });
-    blocks.push({ text: 'This document is a request for quotation. It is not an order and creates no commitment to purchase.', style: 'small', spaceBefore: 14 });
+    if (rfq.deliveryRequirements)
+      blocks.push({ text: 'Delivery requirements', style: 'heading', spaceBefore: 10 }, { text: rfq.deliveryRequirements, style: 'body' });
+    if (rfq.submissionInstructions)
+      blocks.push({ text: 'How to respond', style: 'heading', spaceBefore: 10 }, { text: rfq.submissionInstructions, style: 'body' });
+    if (rfq.termsAndConditions)
+      blocks.push({ text: 'Terms and conditions', style: 'heading', spaceBefore: 10 }, { text: rfq.termsAndConditions, style: 'small' });
+    blocks.push({
+      text: 'This document is a request for quotation. It is not an order and creates no commitment to purchase.',
+      style: 'small',
+      spaceBefore: 14,
+    });
     return renderPdf(blocks, { title: `RFQ ${rfq.rfqNo}`, footer: `${company.legalName} - RFQ ${rfq.rfqNo}` });
   }
 
@@ -351,10 +393,19 @@ export class RfqService implements OnModuleInit {
       const rfq = await this.common.loadRfq(tx, auth, id);
       if (rfq.status !== 'APPROVED') throw AppError.invalidState('Only an approved RFQ can be sent');
       await this.assertSendable(tx, rfq);
-      const sent = await this.common.transitionRfq(tx, rfq, 'SENT', { actorId: auth.userId, reason: 'Issued to invited vendors', data: { sentAt: new Date(), rfqDocumentId: stored.id } });
+      const sent = await this.common.transitionRfq(tx, rfq, 'SENT', {
+        actorId: auth.userId,
+        reason: 'Issued to invited vendors',
+        data: { sentAt: new Date(), rfqDocumentId: stored.id },
+      });
       const pending = await tx.rfqInvitation.findMany({ where: { rfqId: id, status: 'PENDING' } });
       for (const inv of pending) await this.dispatchInvitation(tx, auth, id, inv.id);
-      await this.audit.record(tx, { action: 'rfq.sent', entityType: 'rfq', entityId: id, after: { invitations: pending.length, documentId: stored.id, sha256: stored.sha256 } });
+      await this.audit.record(tx, {
+        action: 'rfq.sent',
+        entityType: 'rfq',
+        entityId: id,
+        after: { invitations: pending.length, documentId: stored.id, sha256: stored.sha256 },
+      });
       return sent;
     });
     return this.detail(auth, id);
@@ -382,12 +433,28 @@ export class RfqService implements OnModuleInit {
       const rfq = await this.common.loadRfq(tx, auth, id);
       if (['AWARDED', 'CANCELLED', 'CLOSED'].includes(rfq.status)) throw AppError.invalidState('This RFQ is closed');
       const next = new Date(responseDeadline);
-      if (next <= rfq.responseDeadline) throw AppError.validation([{ path: 'responseDeadline', message: 'The new deadline must be later than the current one' }]);
+      if (next <= rfq.responseDeadline)
+        throw AppError.validation([{ path: 'responseDeadline', message: 'The new deadline must be later than the current one' }]);
       await tx.rfq.update({ where: { id }, data: { responseDeadline: next, updatedById: auth.userId, version: { increment: 1 } } });
       await tx.rfqCommunication.create({
-        data: { companyId: auth.companyId, rfqId: id, kind: 'DEADLINE_EXTENDED', direction: 'INTERNAL', subject: `Deadline extended to ${next.toISOString().slice(0, 16).replace('T', ' ')} UTC`, body: reason, actorId: auth.userId },
+        data: {
+          companyId: auth.companyId,
+          rfqId: id,
+          kind: 'DEADLINE_EXTENDED',
+          direction: 'INTERNAL',
+          subject: `Deadline extended to ${next.toISOString().slice(0, 16).replace('T', ' ')} UTC`,
+          body: reason,
+          actorId: auth.userId,
+        },
       });
-      await this.audit.record(tx, { action: 'rfq.deadline_extended', entityType: 'rfq', entityId: id, before: { responseDeadline: rfq.responseDeadline }, after: { responseDeadline: next }, reason });
+      await this.audit.record(tx, {
+        action: 'rfq.deadline_extended',
+        entityType: 'rfq',
+        entityId: id,
+        before: { responseDeadline: rfq.responseDeadline },
+        after: { responseDeadline: next },
+        reason,
+      });
       const open = await tx.rfqInvitation.findMany({ where: { rfqId: id, status: { in: ['SENT', 'DELIVERED'] } } });
       for (const inv of open) await this.dispatchInvitation(tx, auth, id, inv.id, true, `The response deadline has been extended. ${reason}`);
     });
@@ -429,7 +496,10 @@ export class RfqService implements OnModuleInit {
       }
       await this.common.transitionRfq(tx, rfq, 'CANCELLED', { actorId: auth.userId, reason });
       if (rfq.requisitionId) {
-        await tx.purchaseRequisition.updateMany({ where: { id: rfq.requisitionId, sourcingRoute: 'RFQ' }, data: { sourcingRoute: 'NONE', version: { increment: 1 } } });
+        await tx.purchaseRequisition.updateMany({
+          where: { id: rfq.requisitionId, sourcingRoute: 'RFQ' },
+          data: { sourcingRoute: 'NONE', version: { increment: 1 } },
+        });
       }
       const open = await tx.rfqInvitation.findMany({ where: { rfqId: id, status: { in: ['SENT', 'DELIVERED', 'PENDING'] } } });
       for (const inv of open) {
@@ -451,7 +521,10 @@ export class RfqService implements OnModuleInit {
       await this.common.lockRfq(tx, id);
       const rfq = await this.common.loadRfq(tx, auth, id);
       await this.common.transitionRfq(tx, rfq, 'CLOSED', { actorId: auth.userId, reason, data: { closedAt: new Date() } });
-      await tx.quotation.updateMany({ where: { rfqId: id, status: { in: ['SUBMITTED', 'UNDER_EVALUATION', 'CLARIFICATION_REQUESTED', 'REVISED'] } }, data: { status: 'REJECTED', statusReason: 'RFQ closed' } });
+      await tx.quotation.updateMany({
+        where: { rfqId: id, status: { in: ['SUBMITTED', 'UNDER_EVALUATION', 'CLARIFICATION_REQUESTED', 'REVISED'] } },
+        data: { status: 'REJECTED', statusReason: 'RFQ closed' },
+      });
     });
     return this.detail(auth, id);
   }
@@ -520,7 +593,15 @@ export class RfqService implements OnModuleInit {
         where: { companyId: auth.companyId },
         orderBy: { updatedAt: 'desc' },
         take: 8,
-        select: { id: true, rfqNo: true, title: true, status: true, responseDeadline: true, updatedAt: true, _count: { select: { quotations: true, invitations: true } } },
+        select: {
+          id: true,
+          rfqNo: true,
+          title: true,
+          status: true,
+          responseDeadline: true,
+          updatedAt: true,
+          _count: { select: { quotations: true, invitations: true } },
+        },
       }),
     ]);
     return {
@@ -561,7 +642,9 @@ export class RfqService implements OnModuleInit {
     const [approvals, attachments] = await Promise.all([
       this.prisma.approvalInstance.findMany({
         where: { companyId: auth.companyId, entityType: 'rfq', entityId: id },
-        include: { tasks: { include: { assignee: { select: { id: true, fullName: true } }, stage: { select: { name: true } } }, orderBy: [{ sequence: 'asc' }] } },
+        include: {
+          tasks: { include: { assignee: { select: { id: true, fullName: true } }, stage: { select: { name: true } } }, orderBy: [{ sequence: 'asc' }] },
+        },
         orderBy: { submittedAt: 'desc' },
       }),
       this.prisma.documentLink.findMany({
@@ -580,7 +663,15 @@ export class RfqService implements OnModuleInit {
       })),
       quotations: rfq.quotations.map((q) => ({
         ...q,
-        versions: q.versions.map((v) => ({ ...v, grandTotal: dec(v.grandTotal), subtotal: dec(v.subtotal), taxTotal: dec(v.taxTotal), freight: dec(v.freight), otherCharges: dec(v.otherCharges), discountTotal: dec(v.discountTotal) })),
+        versions: q.versions.map((v) => ({
+          ...v,
+          grandTotal: dec(v.grandTotal),
+          subtotal: dec(v.subtotal),
+          taxTotal: dec(v.taxTotal),
+          freight: dec(v.freight),
+          otherCharges: dec(v.otherCharges),
+          discountTotal: dec(v.discountTotal),
+        })),
       })),
       approvals,
       attachments: attachments.map((a) => ({ ...a.document, linkType: a.linkType })),

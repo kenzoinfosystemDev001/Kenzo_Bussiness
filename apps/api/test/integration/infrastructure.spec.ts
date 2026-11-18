@@ -148,7 +148,9 @@ describe('Shared infrastructure', () => {
       expect(ok.headers['x-content-type-options']).toBe('nosniff');
       expect(Buffer.compare(ok.body as Buffer, PDF)).toBe(0);
 
-      const tampered = await client.agent.get(signed.body.url.replace(/sig=[a-f0-9]/, 'sig=0'));
+      // Flip the first signature character to one it is not, so the tamper is
+      // never a no-op (replacing it with a fixed '0' left it unchanged 1 time in 16).
+      const tampered = await client.agent.get(signed.body.url.replace(/sig=([a-f0-9])/, (_m: string, c: string) => `sig=${c === '0' ? '1' : '0'}`));
       expect(tampered.status).toBe(403);
       // Another user in the same company cannot reuse the link, nor read the document (OWN scope).
       const { client: other } = await h.as(company, ['REQUESTER']);

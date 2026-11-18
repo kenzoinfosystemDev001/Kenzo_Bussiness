@@ -366,10 +366,7 @@ describe('Approval engine', () => {
     const clone = await admin.post(`/approval-policies/${active.id}/clone`);
     expect(clone.body.policyVersion).toBe(active.policyVersion + 1);
     await admin.post(`/approval-policies/${clone.body.id}/publish`, { reason: 'v2' });
-    const statuses = (await admin.get('/approval-policies?entityType=purchase_order')).body.items.map((p: { id: string; status: string }) => [
-      p.id,
-      p.status,
-    ]);
+    const statuses = (await admin.get('/approval-policies?entityType=purchase_order')).body.items.map((p: { id: string; status: string }) => [p.id, p.status]);
     expect(statuses).toContainEqual([active.id, 'RETIRED']);
     expect(statuses).toContainEqual([clone.body.id, 'ACTIVE']);
     expect((await h.prisma.approvalInstance.findUniqueOrThrow({ where: { id: before.id } })).policyId).toBe(active.id);

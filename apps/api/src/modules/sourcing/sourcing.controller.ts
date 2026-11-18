@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post, Query, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post, Query, Res, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import {
   createQuotationSchema,
@@ -17,6 +17,7 @@ import {
   updateRequisitionSchema,
   updateRfqSchema,
 } from '@kenzo/shared';
+import type { Response } from 'express';
 import { memoryStorage } from 'multer';
 import { z } from 'zod';
 import { loadEnv } from '../../config/env';
@@ -24,13 +25,16 @@ import { CurrentAuth, RequirePermissions } from '../../common/decorators/auth.de
 import type { AuthContext } from '../../common/context/request-context';
 import { AppError } from '../../common/errors/app-error';
 import { zod } from '../../common/pipes/zod-validation.pipe';
+import { EvaluationService } from './evaluation.service';
 import { QuotationsService } from './quotations.service';
 import { RequisitionsService } from './requisitions.service';
 import { RfqService } from './rfq.service';
+import { SourcingReportsService, sendReport } from './sourcing-reports.service';
 
 const reason = z.object({ reason: z.string().trim().min(5, 'Give a reason').max(2000) });
 const optionalReason = z.object({ reason: z.string().trim().max(2000).optional() });
 const note = z.object({ note: z.string().trim().max(1000).nullish() });
+const reportFormat = z.object({ format: z.enum(['pdf', 'csv']).default('pdf') });
 const upload = FileInterceptor('file', { storage: memoryStorage(), limits: { fileSize: loadEnv().DOCUMENT_MAX_BYTES, files: 1, fields: 5 } });
 
 @Controller('requisitions')
@@ -63,7 +67,11 @@ export class RequisitionsController {
 
   @Patch(':id')
   @RequirePermissions('requisition.create')
-  update(@CurrentAuth() auth: AuthContext, @Param('id', ParseUUIDPipe) id: string, @Body(zod(updateRequisitionSchema)) body: z.infer<typeof updateRequisitionSchema>) {
+  update(
+    @CurrentAuth() auth: AuthContext,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(zod(updateRequisitionSchema)) body: z.infer<typeof updateRequisitionSchema>,
+  ) {
     return this.requisitions.update(auth, id, body);
   }
 
@@ -91,7 +99,11 @@ export class RequisitionsController {
   @Post(':id/direct-purchase')
   @HttpCode(200)
   @RequirePermissions('po.create')
-  direct(@CurrentAuth() auth: AuthContext, @Param('id', ParseUUIDPipe) id: string, @Body(zod(directPurchaseSchema)) body: z.infer<typeof directPurchaseSchema>) {
+  direct(
+    @CurrentAuth() auth: AuthContext,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(zod(directPurchaseSchema)) body: z.infer<typeof directPurchaseSchema>,
+  ) {
     return this.requisitions.chooseDirectPurchase(auth, id, body.vendorId, body.reason);
   }
 
@@ -109,6 +121,8 @@ export class RfqController {
   constructor(
     private readonly rfqs: RfqService,
     private readonly quotations: QuotationsService,
+    private readonly evaluation: EvaluationService,
+    private readonly reports: SourcingReportsService,
   ) {}
 
   @Get()
@@ -203,7 +217,11 @@ export class RfqController {
   @Post(':id/extend-deadline')
   @HttpCode(200)
   @RequirePermissions('rfq.manage')
-  extend(@CurrentAuth() auth: AuthContext, @Param('id', ParseUUIDPipe) id: string, @Body(zod(extendDeadlineSchema)) body: z.infer<typeof extendDeadlineSchema>) {
+  extend(
+    @CurrentAuth() auth: AuthContext,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(zod(extendDeadlineSchema)) body: z.infer<typeof extendDeadlineSchema>,
+  ) {
     return this.rfqs.extendDeadline(auth, id, body.responseDeadline, body.reason);
   }
 
@@ -246,12 +264,27 @@ export class RfqController {
   @Get(':id/comparison')
   @RequirePermissions('quotation.read')
   comparison(@CurrentAuth() auth: AuthContext, @Param('id', ParseUUIDPipe) id: string) {
-    return this.quotations.comparison(auth, id);
+    return this.evaluation.comparison(auth, id);
+  }
+
+  @Get(':id/comparison/report')
+  @RequirePermissions('quotation.read')
+  async comparisonReport(
+    @CurrentAuth() auth: AuthContext,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query(zod(reportFormat)) q: z.infer<typeof reportFormat>,
+    @Res() res: Response,
+  ) {
+    sendReport(res, await this.reports.comparison(auth, id, q.format));
   }
 
   @Post(':id/quotations')
   @RequirePermissions('quotation.manage')
-  register(@CurrentAuth() auth: AuthContext, @Param('id', ParseUUIDPipe) id: string, @Body(zod(createQuotationSchema)) body: z.infer<typeof createQuotationSchema>) {
+  register(
+    @CurrentAuth() auth: AuthContext,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(zod(createQuotationSchema)) body: z.infer<typeof createQuotationSchema>,
+  ) {
     return this.quotations.register(auth, id, body);
   }
 }
@@ -268,14 +301,22 @@ export class QuotationsController {
 
   @Patch(':id/draft')
   @RequirePermissions('quotation.manage')
-  updateDraft(@CurrentAuth() auth: AuthContext, @Param('id', ParseUUIDPipe) id: string, @Body(zod(quotationVersionSchema)) body: z.infer<typeof quotationVersionSchema>) {
+  updateDraft(
+    @CurrentAuth() auth: AuthContext,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(zod(quotationVersionSchema)) body: z.infer<typeof quotationVersionSchema>,
+  ) {
     return this.quotations.updateDraft(auth, id, body);
   }
 
   @Post(':id/draft/submit')
   @HttpCode(200)
   @RequirePermissions('quotation.manage')
-  submitDraft(@CurrentAuth() auth: AuthContext, @Param('id', ParseUUIDPipe) id: string, @Body(zod(submitQuotationVersionSchema)) body: z.infer<typeof submitQuotationVersionSchema>) {
+  submitDraft(
+    @CurrentAuth() auth: AuthContext,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(zod(submitQuotationVersionSchema)) body: z.infer<typeof submitQuotationVersionSchema>,
+  ) {
     return this.quotations.submitDraft(auth, id, body.changeSummary, body.lateAcceptanceReason);
   }
 
@@ -288,28 +329,44 @@ export class QuotationsController {
 
   @Post(':id/revisions')
   @RequirePermissions('quotation.manage')
-  revise(@CurrentAuth() auth: AuthContext, @Param('id', ParseUUIDPipe) id: string, @Body(zod(quotationVersionSchema)) body: z.infer<typeof quotationVersionSchema>) {
+  revise(
+    @CurrentAuth() auth: AuthContext,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(zod(quotationVersionSchema)) body: z.infer<typeof quotationVersionSchema>,
+  ) {
     return this.quotations.startRevision(auth, id, body);
   }
 
   @Post(':id/request-clarification')
   @HttpCode(200)
   @RequirePermissions('quotation.read')
-  clarify(@CurrentAuth() auth: AuthContext, @Param('id', ParseUUIDPipe) id: string, @Body(zod(quotationActionSchema)) body: z.infer<typeof quotationActionSchema>) {
+  clarify(
+    @CurrentAuth() auth: AuthContext,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(zod(quotationActionSchema)) body: z.infer<typeof quotationActionSchema>,
+  ) {
     return this.quotations.review(auth, id, 'REQUEST_CLARIFICATION', body.note);
   }
 
   @Post(':id/reject')
   @HttpCode(200)
   @RequirePermissions('quotation.award')
-  reject(@CurrentAuth() auth: AuthContext, @Param('id', ParseUUIDPipe) id: string, @Body(zod(quotationActionSchema)) body: z.infer<typeof quotationActionSchema>) {
+  reject(
+    @CurrentAuth() auth: AuthContext,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(zod(quotationActionSchema)) body: z.infer<typeof quotationActionSchema>,
+  ) {
     return this.quotations.review(auth, id, 'REJECT', body.note);
   }
 
   @Post(':id/notes')
   @HttpCode(200)
   @RequirePermissions('quotation.read')
-  addNote(@CurrentAuth() auth: AuthContext, @Param('id', ParseUUIDPipe) id: string, @Body(zod(quotationActionSchema)) body: z.infer<typeof quotationActionSchema>) {
+  addNote(
+    @CurrentAuth() auth: AuthContext,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(zod(quotationActionSchema)) body: z.infer<typeof quotationActionSchema>,
+  ) {
     return this.quotations.review(auth, id, 'NOTE', body.note);
   }
 

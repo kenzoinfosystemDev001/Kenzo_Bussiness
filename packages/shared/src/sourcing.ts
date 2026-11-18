@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { Dec, MONEY_SCALE, computeLineAmounts } from './money';
+import { Dec, MONEY_SCALE, computeLineAmounts, type TaxTreatment } from './money';
 
 /**
  * Requisition, RFQ and quotation contracts (Phase 03). Totals are computed with
@@ -98,6 +98,13 @@ export const TAX_CATEGORIES: ReadonlyArray<{ code: string; label: string; rate: 
   { code: 'NIL', label: 'Nil rated', rate: '0' },
   { code: 'NON_GST', label: 'Non-GST supply', rate: '0' },
 ];
+/** Whether quoted unit prices already contain the tax. Never defaulted away at comparison time. */
+export const TAX_TREATMENTS = ['EXCLUSIVE', 'INCLUSIVE'] as const;
+export const TAX_TREATMENT_LABELS: Record<TaxTreatment, string> = {
+  EXCLUSIVE: 'Tax extra (exclusive)',
+  INCLUSIVE: 'Tax included in price',
+};
+
 export function taxRateFor(code: string): string | null {
   return TAX_CATEGORIES.find((t) => t.code === code)?.rate ?? null;
 }
@@ -142,12 +149,24 @@ export interface DocumentTotals {
 }
 
 /**
- * Line-level rounding (HALF_UP, 2 dp) then exact sums:
- * grand = Σgross − Σdiscount + Σtax + freight + other charges.
+ * Line-level rounding (HALF_UP, 2 dp) then exact sums. The grand total is
+ * always Σ(taxable) + Σ(tax) + freight + other charges, which under each tax
+ * treatment reduces to:
+ *
+ *   EXCLUSIVE: Σgross − Σdiscount + Σtax + freight + other
+ *   INCLUSIVE: Σgross − Σdiscount + freight + other   (the tax is already in it)
+ *
+ * The same `subtotal` therefore means a different amount payable under each
+ * treatment, which is why `taxTreatment` is stored alongside the figures and
+ * never defaulted away at comparison time.
  */
-export function computeDocumentTotals(lines: PricedLine[], extras: { freight?: string; otherCharges?: string } = {}): DocumentTotals {
+export function computeDocumentTotals(
+  lines: PricedLine[],
+  extras: { freight?: string; otherCharges?: string; taxTreatment?: TaxTreatment } = {},
+): DocumentTotals {
+  const taxTreatment = extras.taxTreatment ?? 'EXCLUSIVE';
   const computed = lines.map((l) =>
-    computeLineAmounts({ quantity: l.quantity, unitPrice: l.unitPrice, discountPercent: l.discountPercent ?? '0', taxRatePercent: l.taxRate }),
+    computeLineAmounts({ quantity: l.quantity, unitPrice: l.unitPrice, discountPercent: l.discountPercent ?? '0', taxRatePercent: l.taxRate, taxTreatment }),
   );
   const sum = (k: 'gross' | 'discount' | 'taxable' | 'tax' | 'total') => Dec.sum(computed.map((c) => c[k])).toFixed(MONEY_SCALE);
   const freight = Dec.of(extras.freight ?? '0').round(MONEY_SCALE);
@@ -261,6 +280,8 @@ export const rfqSchema = z
     /** From a requisition: subset of requisition line ids to include (default all). Standalone: explicit lines. */
     requisitionLineIds: z.array(z.uuid()).max(100).optional(),
     lines: z.array(rfqLineInput).max(100).optional(),
+    /** Procurement policy decision, made when the RFQ is raised: may different lines go to different vendors? */
+    allowPartialAward: z.boolean().default(false),
     vendorIds: z.array(z.uuid()).max(50).default([]),
   })
   .superRefine((r, ctx) => {
@@ -333,6 +354,7 @@ export const quotationVersionSchema = z
     otherCharges: decimal({ scale: 2 }).default('0'),
     otherChargesNote: opt(300),
     notes: opt(4000),
+    taxTreatment: z.enum(TAX_TREATMENTS).default('EXCLUSIVE'),
     receivedVia: z.enum(QUOTATION_RECEIVED_VIA).default('MANUAL_ENTRY'),
     sourceDocumentId: z.uuid().nullish(),
     lines: z.array(quotationLineInput).min(1, 'Quote at least one item').max(100),

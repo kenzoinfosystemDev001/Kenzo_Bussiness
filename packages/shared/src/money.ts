@@ -169,6 +169,19 @@ export class Dec {
 /** Standard monetary scale for INR and most ISO 4217 currencies. */
 export const MONEY_SCALE = 2;
 
+/**
+ * Whether a quoted unit price already contains the tax.
+ *
+ * EXCLUSIVE — tax is added on top of the discounted value (the GST default).
+ * INCLUSIVE — the quoted price already contains it, so the tax is extracted
+ * out of the discounted value rather than added to it.
+ *
+ * The two are never interchangeable: the same unit price means a different
+ * amount payable under each, so anything that compares or sums quotations must
+ * read this field rather than assume one treatment.
+ */
+export type TaxTreatment = 'EXCLUSIVE' | 'INCLUSIVE';
+
 export interface LineAmountInput {
   quantity: DecInput;
   unitPrice: DecInput;
@@ -176,6 +189,8 @@ export interface LineAmountInput {
   discountPercent?: DecInput;
   /** Tax rate percentage, e.g. "18" for 18 % GST. */
   taxRatePercent?: DecInput;
+  /** Defaults to EXCLUSIVE. */
+  taxTreatment?: TaxTreatment;
   rounding?: RoundingMode;
 }
 
@@ -191,6 +206,16 @@ export interface LineAmounts {
  * Computes a transaction line using line-level rounding: every component is
  * rounded to MONEY_SCALE before being summed, so document totals are the exact
  * sum of the displayed line values. Tax snapshots must be stored per line.
+ *
+ * Under both treatments `taxable + tax = total` and `gross - discount` is the
+ * discounted value of the line. They differ in where the tax comes from:
+ *
+ *   EXCLUSIVE: taxable = gross - discount         tax = taxable × rate
+ *   INCLUSIVE: taxable = (gross - discount) / (1 + rate)
+ *              tax     = (gross - discount) - taxable
+ *
+ * so an inclusive line's `total` equals its discounted gross, and the customer
+ * pays the same amount whatever the rate.
  */
 export function computeLineAmounts(input: LineAmountInput): LineAmounts {
   const mode = input.rounding ?? 'HALF_UP';
@@ -205,8 +230,19 @@ export function computeLineAmounts(input: LineAmountInput): LineAmounts {
 
   const gross = qty.mul(price).round(MONEY_SCALE, mode);
   const discount = gross.mul(discountPct).div('100', MONEY_SCALE, mode);
-  const taxable = gross.sub(discount);
-  const tax = taxable.mul(taxPct).div('100', MONEY_SCALE, mode);
+  const net = gross.sub(discount);
+
+  let taxable: Dec;
+  let tax: Dec;
+  if ((input.taxTreatment ?? 'EXCLUSIVE') === 'INCLUSIVE') {
+    // Extract the tax out of the discounted value; the remainder is taxable, so
+    // the two always add back to exactly what the vendor quoted.
+    taxable = net.mul('100').div(Dec.of('100').add(taxPct), MONEY_SCALE, mode);
+    tax = net.sub(taxable);
+  } else {
+    taxable = net;
+    tax = taxable.mul(taxPct).div('100', MONEY_SCALE, mode);
+  }
   const total = taxable.add(tax);
   return {
     gross: gross.toFixed(MONEY_SCALE),
