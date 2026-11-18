@@ -45,6 +45,10 @@ The fix is `scripts/run-tsc.mjs`, which locates the compiler through Node module
 
 ## Vercel settings for `apps/web`
 
+When importing the repository for the first time, set **Root Directory** to `apps/web` on the import screen, before the first build. Everything else can stay at its default — the repository supplies what Vercel needs.
+
+Deploy from a commit that contains `scripts/run-tsc.mjs`; earlier commits fail the install for the reason above.
+
 In the Vercel project → **Settings → General**:
 
 | Setting                                  | Value                                                 |

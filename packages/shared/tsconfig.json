@@ -6,7 +6,10 @@
     "rootDir": ".",
     "outDir": "dist",
     "declaration": true,
-    "types": ["node"]
+    // No "types" entry on purpose: nothing here touches Node APIs, so the package
+    // compiles without @types/node. Requiring it made `npm install --omit=dev`
+    // fail the root postinstall, which builds this package.
+    "types": []
   },
   "include": ["src/**/*.ts"]
 }
