@@ -128,22 +128,33 @@ FATAL ERROR: Ineffective mark-compacts near heap limit Allocation failed - JavaS
    which is what Render reported. `No open ports detected` was a consequence,
    not a separate problem: the process never reached `app.listen`.
 
-Running `npm run dev` on a host is the root cause of both. The script now refuses
-to start when `NODE_ENV=production`, so the mistake fails loudly and immediately
-instead of after a minute of memory exhaustion.
+Running `npm run dev` on a host is the root cause of both. `scripts/dev-api.mjs`
+now refuses to start when it detects a deployment platform — Render, Railway,
+Fly.io, Heroku or Vercel by their own environment markers, or `NODE_ENV=production`
+— and prints the settings below. Checking `NODE_ENV` alone was not enough: a
+service whose environment was never configured runs with it unset, and the first
+symptom is still the compiler dying of heap exhaustion two minutes later.
 
 A deployed instance must **build once and run the compiled output**:
 
-| Setting           | Value                                                             |
-| ----------------- | ----------------------------------------------------------------- |
-| Root Directory    | repository root (leave blank) — the API needs `packages/shared`   |
-| Build Command     | `npm ci && npm run build -w @kenzo/api`                           |
-| Start Command     | `npm run db:migrate -w @kenzo/api && npm run start -w @kenzo/api` |
-| Health Check Path | `/api/v1/health`                                                  |
+| Setting           | Value                                                           |
+| ----------------- | --------------------------------------------------------------- |
+| Root Directory    | repository root (leave blank) — the API needs `packages/shared` |
+| Build Command     | `npm ci && npm run build -w @kenzo/api`                         |
+| Start Command     | `npm run db:migrate -w @kenzo/api && npm start`                 |
+| Health Check Path | `/api/v1/health`                                                |
 
-`npm run start` is `node dist/main.js` — one process, no compiler, no watchers.
+`npm start` at the repository root is `node dist/main.js` — one process, no
+compiler, no watchers. It is deliberately the root script, because Render and
+most hosts fall back to `npm start` when the start command is left blank.
 `prisma migrate deploy` is idempotent, so running it on each boot is safe and
 keeps the schema in step without a paid pre-deploy command.
+
+> Changing `render.yaml` does **not** change a service that was created by hand.
+> A blueprint only configures services it creates. An existing service keeps the
+> Build and Start commands and the environment variables in its own dashboard
+> until you edit them there, which is why a service left on `npm run dev` goes on
+> failing no matter what this repository says.
 
 ### Deploying with the blueprint
 

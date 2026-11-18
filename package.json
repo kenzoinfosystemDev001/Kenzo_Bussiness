@@ -14,6 +14,7 @@
   "scripts": {
     "build:shared": "npm run build -w @kenzo/shared",
     "build": "npm run build:shared && npm run build -w @kenzo/api && npm run build -w @kenzo/web",
+    "start": "npm run start -w @kenzo/api",
     "dev:api": "npm run dev -w @kenzo/api",
     "dev:web": "npm run dev -w @kenzo/web",
     "lint": "eslint . --max-warnings=0",

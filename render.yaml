@@ -27,7 +27,7 @@ services:
     buildCommand: npm ci && npm run build -w @kenzo/api
     # `migrate deploy` is idempotent, so running it on every boot is safe and
     # keeps the schema in step without a paid pre-deploy command.
-    startCommand: npm run db:migrate -w @kenzo/api && npm run start -w @kenzo/api
+    startCommand: npm run db:migrate -w @kenzo/api && npm start
     healthCheckPath: /api/v1/health
     envVars:
       - key: NODE_VERSION

@@ -11,13 +11,31 @@ import { existsSync } from 'node:fs';
 // resident, which costs far more memory than the compiled server and tolerates
 // type errors instead of failing. Deployed hosts must build once and run
 // `dist/main.js`; starting this script there exhausts the heap instead.
-if (process.env.NODE_ENV === 'production') {
+//
+// NODE_ENV alone is not enough to detect that: a host whose environment was
+// never configured runs this with NODE_ENV unset, and the first symptom is the
+// compiler dying of heap exhaustion two minutes later. Each platform's own
+// marker catches that case immediately.
+const host =
+  (process.env.RENDER && 'Render') ||
+  (process.env.RAILWAY_ENVIRONMENT && 'Railway') ||
+  (process.env.FLY_APP_NAME && 'Fly.io') ||
+  (process.env.DYNO && 'Heroku') ||
+  (process.env.VERCEL && 'Vercel') ||
+  (process.env.NODE_ENV === 'production' && 'this host');
+
+if (host) {
   console.error(
     [
-      'dev-api.mjs is a development-only watcher and must not run with NODE_ENV=production.',
-      'Build and start the compiled server instead:',
-      '  npm run build -w @kenzo/api',
-      '  npm run start -w @kenzo/api',
+      `dev-api.mjs is a development-only watcher and must not run on ${host}.`,
+      'It keeps the TypeScript compiler and a file watcher resident, which will',
+      'exhaust the memory of a small instance and never bind a port.',
+      '',
+      'Set the service to build once and run the compiled server:',
+      '  Build command:  npm ci && npm run build -w @kenzo/api',
+      '  Start command:  npm run db:migrate -w @kenzo/api && npm start',
+      '',
+      'See docs/DEPLOYMENT.md, or apply the render.yaml blueprint in this repository.',
     ].join('\n'),
   );
   process.exit(1);
