@@ -41,6 +41,13 @@ Reproduced in an isolated npm workspace: with `NPM_CONFIG_PRODUCTION=true`, `npm
 
 The fix is `scripts/run-tsc.mjs`, which locates the compiler through Node module resolution rather than PATH; `packages/shared` uses it for both `build` and `typecheck`. Verified by running the shared build in a tree where `tsc` was absent from PATH, and by a full `next build` in a production-style install.
 
+**3. `TypeScript could not be resolved` during `npm install`.** With the compiler no longer looked up on PATH, the next deploy showed that Vercel does not install the repository root's devDependencies at all — not even with `--include=dev`. Two consequences, both fixed:
+
+- `packages/shared/tsconfig.json` required `@types/node` through `types: ["node"]`, although nothing in the package uses a Node API. It is now `types: []`, so the package compiles without it.
+- `typescript` is now a **dependency** of `packages/shared` rather than only a root devDependency. The package compiles itself during `postinstall`, so the compiler must sit in whatever closure the installer resolves — the same one that provides `zod`. npm dedupes it against the root devDependency, so only one copy is installed, and `npm audit --omit=dev` still reports no vulnerabilities.
+
+The general rule: anything the root `postinstall` needs must be reachable from the production closure, because a host may install only that.
+
 > Do **not** fix this with `include=dev` in a committed `.npmrc`. npm lets `include` win over `omit`, which silently breaks `npm audit --omit=dev` (the CI `audit:deps` gate) by pulling development packages back into the production audit. This was tested: the gate flipped from pass to fail.
 
 ## Vercel settings for `apps/web`
